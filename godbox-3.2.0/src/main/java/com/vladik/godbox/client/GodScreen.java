@@ -536,11 +536,12 @@ public class GodScreen extends Screen {
         ctx.getMatrices().push();
         ctx.getMatrices().translate(0, 0, 300);
         WorldPanels.render(ctx, textRenderer, width, height, mx, my);
+        SeasonHud.render(ctx, textRenderer, width, mx, my);
         long now = System.currentTimeMillis();
         if (now < toastUntil) {
             String ts = Ui.ellipsis(textRenderer, toast, width - 24);
             int tw2 = textRenderer.getWidth(ts) + 14;
-            int ty = WorldPanels.bottom() + 8;
+            int ty = WorldPanels.bottom() + 8 + SeasonHud.h();
             if (Art.on()) Art.tooltip(ctx, width / 2 - tw2 / 2, ty, tw2, 14);
             else {
                 ctx.fill(width / 2 - tw2 / 2, ty, width / 2 + tw2 / 2, ty + 14, 0xD0101018);

@@ -421,7 +421,7 @@ public final class Eras {
                 if (accent(s)) pl.ch.add(new Ch(p, s));
                 continue;
             }
-            if (skip(cur) || !may.test(cur)) continue;
+            if (skip(cur) || Repair.seasonal(cur) || !may.test(cur)) continue;
             pl.ch.add(new Ch(p, s));
         }
         pl.ch.sort(Comparator.comparingInt(c -> c.pos().getY()));
