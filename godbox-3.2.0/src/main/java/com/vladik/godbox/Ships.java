@@ -60,10 +60,10 @@ public final class Ships {
         return null;
     }
 
-    static BlockPos build(ServerWorld w, Kingdoms.K k, BlockPos wt, Direction land) {
+    /** Чертёж причала: единственный источник и для постройки, и для перекраски. */
+    static void pier(TownBuilder.Job j, Kingdoms.K k, int era, BlockPos wt, Direction land) {
         Direction sea = land.getOpposite(), side = sea.rotateYClockwise();
-        int era = Civ.city(k).era, y = wt.getY();
-        TownBuilder.Job j = new TownBuilder.Job(w);
+        int y = wt.getY();
         for (int d = -1; d < 8; d++) for (int s = -1; s <= 1; s++) {
             BlockPos p = wt.offset(sea, d).offset(side, s);
             p = new BlockPos(p.getX(), y, p.getZ());
@@ -80,6 +80,15 @@ public final class Ships {
         j.put(new BlockPos(end.getX(), y + 5, end.getZ()), k.wool.getDefaultState());
         j.put(wt.offset(sea, 0).offset(side, 1).up(), Blocks.BARREL.getDefaultState());
         j.put(wt.offset(sea, 0).offset(side, -1).up(), Blocks.CHEST.getDefaultState());
+    }
+
+    static BlockPos build(ServerWorld w, Kingdoms.K k, BlockPos wt, Direction land) {
+        Direction sea = land.getOpposite();
+        int era = Civ.city(k).era;
+        TownBuilder.Job j = new TownBuilder.Job(w);
+        pier(j, k, era, wt, land);
+        Props.Prop pr = Props.add(Props.Kind.PIER, k, wt.getX(), wt.getY(), wt.getZ(), land.getHorizontal(), era);
+        j.onDone = () -> pr.busy = false;
         Tasks.add(j);
         BlockPos moor = wt.offset(sea, 10);
         PORTS.put(k, moor);
