@@ -102,6 +102,14 @@ public final class WorldPanels {
         }
     }
 
+    /** Кнопка летописи рядом с панелью времени {x, y, w, h} или null, если места нет. */
+    static int[] chronRect(TextRenderer tr, int width) {
+        int w = tr.getWidth("Летопись") + 14, x0 = timeX(width), total = TIME_LABEL.length * (BW + 2) + 34;
+        if (x0 + total + 6 + w <= width - 124) return new int[]{x0 + total + 6, 3, w, 16};
+        if (x0 - 6 - w >= 40) return new int[]{x0 - 6 - w, 3, w, 16};
+        return null;
+    }
+
     public static void render(DrawContext ctx, TextRenderer tr, int width, int height, int mx, int my) {
         int x0 = timeX(width), y = 4;
         int total = TIME_LABEL.length * (BW + 2) + 34;
@@ -135,6 +143,13 @@ public final class WorldPanels {
                     Text.literal(name).formatted(Formatting.GOLD),
                     Text.literal(HudState.agesOn ? "До смены эпохи: " + left / 60 + " мин " + left % 60 + " с" : "Цикл эпох отключён").formatted(Formatting.GRAY),
                     Text.literal("ЛКМ или J — выбрать эпоху").formatted(Formatting.DARK_GRAY)), mx, my + 16);
+        }
+        int[] cb = chronRect(tr, width);
+        if (cb != null) {
+            boolean ch = Ui.in(mx, my, cb[0], cb[1], cb[2], cb[3]);
+            Art.button(ctx, cb[0], cb[1], cb[2], cb[3], ch, false);
+            ctx.drawCenteredTextWithShadow(tr, "Летопись", cb[0] + cb[2] / 2, cb[1] + 4, Ui.TEXT);
+            if (ch) ctx.drawTooltip(tr, List.of(Text.literal("Летопись мира").formatted(Formatting.GOLD), Text.literal("ЛКМ или " + GodKeys.CHRONICLE.getBoundKeyLocalizedText().getString()).formatted(Formatting.DARK_GRAY)), mx, my + 16);
         }
         if (MortalClient.active()) renderMortal(ctx, tr, width, mx, my);
         if (popup) renderPopup(ctx, tr, width, height, mx, my);
@@ -182,6 +197,11 @@ public final class WorldPanels {
             }
             boolean in = mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3];
             if (!in) popup = false;
+            return "";
+        }
+        int[] cb = chronRect(MinecraftClient.getInstance().textRenderer, width);
+        if (cb != null && Ui.in(mx, my, cb[0], cb[1], cb[2], cb[3])) {
+            ChronicleScreen.open();
             return "";
         }
         int x0 = timeX(width), y = 4;
