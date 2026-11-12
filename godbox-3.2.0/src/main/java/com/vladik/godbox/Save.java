@@ -94,9 +94,46 @@ public final class Save {
             }
             for (String r : Faith.RELIGIONS) o.add("R|" + clean(r));
             for (String l : Chronicle.LOG) o.add("L|" + clean(l));
-            Files.write(file(s), o, StandardCharsets.UTF_8);
+            write(file(s), o);
         } catch (Exception e) {
-            System.err.println("[GodBox] save failed: " + e);
+            GodBox.LOG.error("GodBox: сохранение не удалось", e);
+        }
+    }
+
+    private static Path backup(Path f) {
+        return f.resolveSibling("godbox_state.bak");
+    }
+
+    /** Атомарная запись: временный файл рядом, затем перемещение; предыдущий хороший файл остаётся в .bak. */
+    private static void write(Path f, List<String> lines) throws java.io.IOException {
+        Path tmp = f.resolveSibling("godbox_state.tmp");
+        try (var ch = java.nio.channels.FileChannel.open(tmp, java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.WRITE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {
+            ch.write(java.nio.ByteBuffer.wrap((String.join("\n", lines) + "\n").getBytes(StandardCharsets.UTF_8)));
+            ch.force(true);
+        }
+        if (validHeader(f) != null) {
+            try {
+                Files.copy(f, backup(f), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                GodBox.LOG.warn("GodBox: не удалось обновить резервную копию", e);
+            }
+        }
+        try {
+            Files.move(tmp, f, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /** Строки файла, если он читается и начинается с заголовка "godbox|версия"; иначе null. */
+    private static List<String> validHeader(Path f) {
+        try {
+            if (!Files.isRegularFile(f) || Files.size(f) == 0) return null;
+            List<String> l = Files.readAllLines(f, StandardCharsets.UTF_8);
+            return !l.isEmpty() && l.get(0).startsWith("godbox|") ? l : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -106,13 +143,25 @@ public final class Save {
         SaveExt.resetAll();
         try {
             Path f = file(s);
-            if (!Files.exists(f)) return;
-            List<String> in = Files.readAllLines(f, StandardCharsets.UTF_8);
+            List<String> in = validHeader(f);
+            if (in == null) {
+                Path bak = backup(f);
+                if (Files.exists(f) && Files.size(f) > 0) GodBox.LOG.warn("GodBox: godbox_state.txt повреждён (нет заголовка)");
+                in = validHeader(bak);
+                if (in == null) {
+                    if (Files.exists(f) || Files.exists(bak)) GodBox.LOG.warn("GodBox: нет пригодного файла сохранения, мир начинается с нуля");
+                    return;
+                }
+                GodBox.LOG.warn("GodBox: загружена резервная копия godbox_state.bak");
+            }
+            int lineNo = 0, badCount = 0;
+            StringBuilder badAt = new StringBuilder();
             Faith.RELIGIONS.clear();
             Chronicle.LOG.clear();
             Prayers.FAITH.clear(); Herds.PEN.clear(); Achievements.GOT.clear(); Tectonics.VOLCANOES.clear(); java.util.Arrays.fill(Banners.SALT, 0); Dynasty.HOUSES.clear();
             int kingdoms = 0;
             for (String line : in) {
+                lineNo++;
                 String[] a = line.split("\\|", -1);
                 try {
                     if (a[0].equals("godbox")) {
@@ -214,12 +263,13 @@ public final class Save {
                         default -> { }
                     }
                 } catch (Exception bad) {
-                    System.err.println("[GodBox] bad save line: " + line);
+                    if (++badCount <= 5) badAt.append(badAt.length() > 0 ? ", " : "").append(lineNo);
                 }
             }
-            if (kingdoms > 0) System.out.println("[GodBox] restored kingdoms: " + kingdoms);
+            if (badCount > 0) GodBox.LOG.warn("GodBox: не разобрано строк сохранения: {} (первые: {})", badCount, badAt);
+            if (kingdoms > 0) GodBox.LOG.info("GodBox: восстановлено королевств: {}", kingdoms);
         } catch (Exception e) {
-            System.err.println("[GodBox] load failed: " + e);
+            GodBox.LOG.error("GodBox: загрузка не удалась", e);
         }
     }
 }
