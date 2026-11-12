@@ -55,6 +55,8 @@ public final class ModelParts {
         c_guns();
         c_cannon();
         c_catapult();
+        c_meteor();
+        c_meteor_b();
     }
 
     private static void c_crab() {
@@ -312,6 +314,20 @@ public final class ModelParts {
         ALL.put("catapult", new Creature("catapult", 1.5f, false, false, new Part[]{
                 p("frame", 4200, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
                 p("arm", 4201, -1, 0.0f, 19.0f, 0.0f, -34.0f, 0.0f, 0.0f, 1.0f, false, a(STRIKE, 0, 72.0f, 24.0f, 0.0f, ALWAYS, SIN)),
+        }));
+    }
+
+    private static void c_meteor() {
+        ALL.put("meteor", new Creature("meteor", 1.5f, false, false, new Part[]{
+                p("rock", 4300, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
+                p("glow", 4301, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, true),
+        }));
+    }
+
+    private static void c_meteor_b() {
+        ALL.put("meteor_b", new Creature("meteor_b", 1.5f, false, false, new Part[]{
+                p("rock", 4400, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
+                p("glow", 4401, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, true),
         }));
     }
 }
