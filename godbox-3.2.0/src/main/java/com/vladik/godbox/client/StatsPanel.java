@@ -23,8 +23,11 @@ public final class StatsPanel {
     public static void render(DrawContext ctx, TextRenderer tr, int width, int height) {
         if (!on) return;
         int x0 = 20, y0 = 34, x1 = width - 20, y1 = height - 30;
-        ctx.fill(x0, y0, x1, y1, 0xD0101018);
-        ctx.drawBorder(x0, y0, x1 - x0, y1 - y0, 0xFFC8A040);
+        if (Art.on()) Art.frame(ctx, x0, y0, x1 - x0, y1 - y0);
+        else {
+            ctx.fill(x0, y0, x1, y1, 0xD0101018);
+            ctx.drawBorder(x0, y0, x1 - x0, y1 - y0, 0xFFC8A040);
+        }
         ctx.drawText(tr, Text.literal("\u00a76\u00a7lСтатистика королевств"), x0 + 8, y0 + 6, 0xFFFFFF, true);
         ctx.drawText(tr, Text.literal("\u00a78K — закрыть"), x1 - 70, y0 + 6, 0xFFFFFF, false);
         String t = text == null ? "" : text;
@@ -47,6 +50,8 @@ public final class StatsPanel {
         for (int n = 0; n < cols; n++) {
             int i = from + n;
             int cx = x0 + 8 + n * colW, cy = y0 + 22;
+            com.vladik.godbox.Kingdoms.K kk = Art.forText(blocks[i]);
+            if (kk != null) Art.emblem(ctx, kk, cx + colW - 26, cy - 2, 16);
             for (String line : blocks[i].split("\n")) {
                 List<OrderedText> wrapped = tr.wrapLines(Text.literal(line), colW - 8);
                 for (OrderedText o : wrapped) {
