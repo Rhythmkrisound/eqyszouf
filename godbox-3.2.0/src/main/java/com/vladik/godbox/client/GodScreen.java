@@ -296,7 +296,20 @@ public class GodScreen extends Screen {
         int maxW = Math.max(60, Math.min(220, width - 40));
         List<OrderedText> out = new ArrayList<>();
         for (Text t : lines) out.addAll(textRenderer.wrapLines(t, maxW));
-        ctx.drawTooltip(textRenderer, out, Ui.TIP, mx, my);
+        if (!Art.on()) {
+            ctx.drawTooltip(textRenderer, out, Ui.TIP, mx, my);
+            return;
+        }
+        int tw = 0;
+        for (OrderedText o : out) tw = Math.max(tw, textRenderer.getWidth(o));
+        int w = tw + 12, h = out.size() * 10 + (out.size() > 1 ? 2 : 0) + 8;
+        org.joml.Vector2ic p = Ui.TIP.getPosition(width, height, mx, my, w, h);
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(0, 0, 400);
+        Art.tooltip(ctx, p.x(), p.y(), w, h);
+        for (int i = 0; i < out.size(); i++)
+            ctx.drawText(textRenderer, out.get(i), p.x() + 6, p.y() + 5 + i * 10 + (i > 0 ? 2 : 0), 0xFFFFFFFF, true);
+        ctx.getMatrices().pop();
     }
 
     /** Значки поверх иконки рисуются выше предмета, иначе он их перекрывает. */
@@ -304,12 +317,22 @@ public class GodScreen extends Screen {
         int s = slot();
         boolean danger = danger(p);
         Boolean law = LawStates.get(p);
-        ctx.fill(x, y, x + w, y + s, hov ? Ui.CELL_HOVER : p == selected ? Ui.CELL_SEL : law != null ? (law ? Ui.LAW_ON : Ui.LAW_OFF) : Ui.CELL);
-        if (law != null) ctx.fill(x, y + s - 2, x + w, y + s, law ? Ui.GREEN : Ui.RED);
-        else ctx.fill(x, y + s - 1, x + w, y + s, danger ? Ui.RED : p.continuous ? Ui.AQUA : 0xFF505060);
-        if (p == selected) ctx.drawBorder(x - 1, y - 1, w + 2, s + 2, Ui.GOLD);
-        else if (cur) ctx.drawBorder(x - 1, y - 1, w + 2, s + 2, Ui.WHITE);
-        ctx.drawItem(new ItemStack(p.icon), x + (s - 16) / 2, y + (s - 16) / 2);
+        if (Art.on()) {
+            Art.button(ctx, x, y, w, s, hov, false);
+            if (!hov && law != null) ctx.fill(x + 2, y + 2, x + w - 2, y + s - 2, law ? Ui.LAW_ON : Ui.LAW_OFF);
+            else if (!hov && p == selected) ctx.fill(x + 2, y + 2, x + w - 2, y + s - 2, Ui.CELL_SEL);
+            if (law != null) ctx.fill(x + 3, y + s - 4, x + w - 3, y + s - 2, law ? Ui.GREEN : Ui.RED);
+            else ctx.fill(x + 3, y + s - 3, x + w - 3, y + s - 2, danger ? Ui.RED : p.continuous ? Ui.AQUA : 0xFF505060);
+            if (p == selected) Art.slotSelected(ctx, x - 1, y - 1, w + 2, s + 2);
+            else if (cur) ctx.drawBorder(x - 1, y - 1, w + 2, s + 2, Ui.WHITE);
+        } else {
+            ctx.fill(x, y, x + w, y + s, hov ? Ui.CELL_HOVER : p == selected ? Ui.CELL_SEL : law != null ? (law ? Ui.LAW_ON : Ui.LAW_OFF) : Ui.CELL);
+            if (law != null) ctx.fill(x, y + s - 2, x + w, y + s, law ? Ui.GREEN : Ui.RED);
+            else ctx.fill(x, y + s - 1, x + w, y + s, danger ? Ui.RED : p.continuous ? Ui.AQUA : 0xFF505060);
+            if (p == selected) ctx.drawBorder(x - 1, y - 1, w + 2, s + 2, Ui.GOLD);
+            else if (cur) ctx.drawBorder(x - 1, y - 1, w + 2, s + 2, Ui.WHITE);
+        }
+        if (!PowerIcons.draw(ctx, p, x + (s - 16) / 2, y + (s - 16) / 2, 16)) ctx.drawItem(new ItemStack(p.icon), x + (s - 16) / 2, y + (s - 16) / 2);
         if (!MortalClient.affordable(p)) ctx.fill(x, y, x + s, y + s - 1, 200, 0xB0101018);
         if (w > s && p.category != null) {
             // строка результата поиска: название и вкладка
@@ -344,17 +367,24 @@ public class GodScreen extends Screen {
         // --- боковая панель вкладок ---
         Category[] cs = Category.values();
         int rc = railCell(), rt = RAIL_TOP;
-        ctx.fill(2, rt - 2, 4 + rc + 2, rt + cs.length * rc + 2, 0xA0101018);
+        if (Art.on()) Art.inset(ctx, 2, rt - 2, rc + 4, cs.length * rc + 4);
+        else ctx.fill(2, rt - 2, 4 + rc + 2, rt + cs.length * rc + 2, 0xA0101018);
         for (int i = 0; i < cs.length; i++) {
             Category c = cs[i];
             int y = rt + i * rc;
             boolean sel = c == category && !listMode();
             boolean hov = hx >= 2 && hx < 4 + rc + 2 && hy >= y && hy < y + rc;
-            if (sel) {
+            if (Art.on()) {
+                if (sel || hov) Art.button(ctx, 4, y, rc, rc - 1, hov, sel);
+                if (sel) ctx.fill(2, y + 1, 4, y + rc - 2, Ui.GOLD_LIGHT);
+            } else if (sel) {
                 ctx.fill(4, y, 4 + rc, y + rc - 1, 0xE0B8860B);
                 ctx.fill(2, y, 4, y + rc - 1, Ui.GOLD_LIGHT);
             } else if (hov) ctx.fill(4, y, 4 + rc, y + rc - 1, 0xC0505060);
-            if (rc >= 16) ctx.drawItem(new ItemStack(c.icon), 4 + (rc - 16) / 2, y + (rc - 16) / 2);
+            if (rc >= 16) {
+                if (!PowerIcons.drawCategory(ctx, c, 4 + (rc - 16) / 2, y + (rc - 16) / 2, 16))
+                    ctx.drawItem(new ItemStack(c.icon), 4 + (rc - 16) / 2, y + (rc - 16) / 2);
+            }
             else ctx.drawCenteredTextWithShadow(textRenderer, c.title.substring(0, 1), 4 + rc / 2, y + (rc - 8) / 2, Ui.WHITE);
             if (hov) tip = List.of(Text.literal(c.title).formatted(Formatting.GOLD),
                     Text.literal(Power.of(c).size() + " сил").formatted(Formatting.GRAY),
@@ -375,16 +405,22 @@ public class GodScreen extends Screen {
             scrollPx += (tgt - scrollPx) * Math.min(1.0, delta * 0.5);
             if (Math.abs(tgt - scrollPx) < 0.5) scrollPx = tgt;
         }
-        ctx.fill(d.x0, d.top, d.x1, d.bottom, Ui.BG);
-        ctx.fill(d.x0, d.top, d.x0 + 2, d.bottom, danger(selected) ? Ui.RED : Ui.GOLD_DARK);
+        if (Art.on()) {
+            Art.frame(ctx, d.x0, d.top, d.x1 - d.x0, d.bottom - d.top);
+            ctx.fill(d.x0 + 3, d.top + 3, d.x0 + 5, d.bottom - 3, danger(selected) ? Ui.RED : Ui.GOLD_DARK);
+        } else {
+            ctx.fill(d.x0, d.top, d.x1, d.bottom, Ui.BG);
+            ctx.fill(d.x0, d.top, d.x0 + 2, d.bottom, danger(selected) ? Ui.RED : Ui.GOLD_DARK);
+        }
         ctx.fill(d.x0 + 2, d.stripY, d.x1, d.stripY + 1, 0x30FFFFFF);
         ctx.fill(d.x0 + 2, d.gridY - 1, d.x1, d.gridY, 0x30FFFFFF);
         int[] hit = blocked ? null : d.hit(mx, my);
 
         // выбранная сила: значок, название, кисть, подсказка по управлению
         int ix = d.x0 + Ui.PAD + 2, iy = d.infoY, tx = ix + 24, right = d.x1 - Ui.PAD;
-        ctx.fill(ix, iy + 2, ix + 20, iy + 22, Ui.CELL_SOLID);
-        ctx.drawItem(new ItemStack(selected.icon), ix + 2, iy + 4);
+        if (Art.on()) Art.inset(ctx, ix, iy + 2, 20, 20);
+        else ctx.fill(ix, iy + 2, ix + 20, iy + 22, Ui.CELL_SOLID);
+        if (!PowerIcons.draw(ctx, selected, ix + 2, iy + 4, 16)) ctx.drawItem(new ItemStack(selected.icon), ix + 2, iy + 4);
         boolean ba = brushApplies(selected);
         String br;
         if (right - tx > 260) {
@@ -442,8 +478,13 @@ public class GodScreen extends Screen {
         String header = d.rows ? "Поиск: «" + query + "» — " + n : category.title + " — " + n + " сил";
         ctx.drawTextWithShadow(textRenderer, Ui.ellipsis(textRenderer, header, d.searchX - 6 - (d.x0 + Ui.PAD + 2)), d.x0 + Ui.PAD + 2, d.barY + 3, Ui.GOLD_LIGHT);
         boolean sHov = d.inSearch(hx, hy);
-        ctx.fill(d.searchX, d.barY + 1, d.searchX + d.searchW, d.barY + 13, sHov || searching ? 0xF0202028 : 0xE0000000);
-        ctx.drawBorder(d.searchX, d.barY + 1, d.searchW, 12, searching ? Ui.GOLD : sHov ? Ui.MUTED : 0xFF505060);
+        if (Art.on()) {
+            Art.inset(ctx, d.searchX, d.barY + 1, d.searchW, 12);
+            if (searching || sHov) ctx.drawBorder(d.searchX, d.barY + 1, d.searchW, 12, searching ? Ui.GOLD : Ui.MUTED);
+        } else {
+            ctx.fill(d.searchX, d.barY + 1, d.searchX + d.searchW, d.barY + 13, sHov || searching ? 0xF0202028 : 0xE0000000);
+            ctx.drawBorder(d.searchX, d.barY + 1, d.searchW, 12, searching ? Ui.GOLD : sHov ? Ui.MUTED : 0xFF505060);
+        }
         if (searching) {
             String caret = System.currentTimeMillis() / 400 % 2 == 0 ? "_" : "";
             ctx.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(query, d.searchW - 12, true) + caret, d.searchX + 3, d.barY + 3, 0xFFFFFF55);
@@ -454,8 +495,11 @@ public class GodScreen extends Screen {
                 Text.literal("Ctrl+F или / — искать по названию и описанию во всех вкладках").formatted(Formatting.GRAY),
                 Text.literal("Стрелки — выбор, Enter — выбрать, Esc — закрыть").formatted(Formatting.DARK_GRAY));
         boolean qHov = d.inHelp(hx, hy);
-        ctx.fill(d.helpX, d.barY + 1, d.helpX + 12, d.barY + 13, qHov ? Ui.CELL_HOVER : Ui.CELL_SOLID);
-        ctx.drawBorder(d.helpX, d.barY + 1, 12, 12, qHov ? Ui.GOLD : 0xFF505060);
+        if (Art.on()) Art.button(ctx, d.helpX, d.barY + 1, 12, 12, qHov, false);
+        else {
+            ctx.fill(d.helpX, d.barY + 1, d.helpX + 12, d.barY + 13, qHov ? Ui.CELL_HOVER : Ui.CELL_SOLID);
+            ctx.drawBorder(d.helpX, d.barY + 1, 12, 12, qHov ? Ui.GOLD : 0xFF505060);
+        }
         ctx.drawCenteredTextWithShadow(textRenderer, "?", d.helpX + 6, d.barY + 3, qHov ? Ui.GOLD : Ui.WHITE);
         if (qHov) tip = List.of(Text.literal("I — справка").formatted(Formatting.GOLD), Text.literal("F1 — тоже справка, H — энциклопедия").formatted(Formatting.GRAY));
 
@@ -471,8 +515,14 @@ public class GodScreen extends Screen {
         ctx.disableScissor();
         if (d.maxScroll > 0) {
             boolean bHov = dragBar || d.inBar(hx, hy);
-            ctx.fill(d.sbX, d.gridY, d.sbX + SB, d.gridY + d.gridH, 0x60000000);
-            ctx.fill(d.sbX, d.thumbY(), d.sbX + SB, d.thumbY() + d.thumbH(), bHov ? Ui.GOLD_LIGHT : Ui.GOLD_DARK);
+            if (Art.on()) {
+                Art.scrollTrack(ctx, d.sbX, d.gridY, SB, d.gridH);
+                Art.scrollThumb(ctx, d.sbX, d.thumbY(), SB, d.thumbH());
+                if (bHov) ctx.fill(d.sbX, d.thumbY(), d.sbX + SB, d.thumbY() + d.thumbH(), 0x40FFE680);
+            } else {
+                ctx.fill(d.sbX, d.gridY, d.sbX + SB, d.gridY + d.gridH, 0x60000000);
+                ctx.fill(d.sbX, d.thumbY(), d.sbX + SB, d.thumbY() + d.thumbH(), bHov ? Ui.GOLD_LIGHT : Ui.GOLD_DARK);
+            }
         }
         if (hit != null) {
             hoverPower = d.power(hit);
@@ -491,8 +541,11 @@ public class GodScreen extends Screen {
             String ts = Ui.ellipsis(textRenderer, toast, width - 24);
             int tw2 = textRenderer.getWidth(ts) + 14;
             int ty = WorldPanels.bottom() + 8;
-            ctx.fill(width / 2 - tw2 / 2, ty, width / 2 + tw2 / 2, ty + 14, 0xD0101018);
-            ctx.fill(width / 2 - tw2 / 2, ty + 13, width / 2 + tw2 / 2, ty + 14, toastColor);
+            if (Art.on()) Art.tooltip(ctx, width / 2 - tw2 / 2, ty, tw2, 14);
+            else {
+                ctx.fill(width / 2 - tw2 / 2, ty, width / 2 + tw2 / 2, ty + 14, 0xD0101018);
+                ctx.fill(width / 2 - tw2 / 2, ty + 13, width / 2 + tw2 / 2, ty + 14, toastColor);
+            }
             ctx.drawCenteredTextWithShadow(textRenderer, ts, width / 2, ty + 3, toastColor);
         }
         StatsPanel.render(ctx, textRenderer, width, height);
@@ -524,14 +577,19 @@ public class GodScreen extends Screen {
         }
         int w = Math.max(300, kw + dw + 34), h = rows.length * 11 + 26;
         // на маленьком экране справка ужимается целиком, а не обрезается
-        float k = Math.min(1f, Math.min((width - 8) / (float) (w + 4), (height - 8) / (float) (h + 4)));
+        float k = Math.min(1f, Math.min((width - 8) / (float) (w + 12), (height - 8) / (float) (h + 12)));
         ctx.getMatrices().push();
         ctx.getMatrices().translate(width / 2f, height / 2f, 0);
         ctx.getMatrices().scale(k, k, 1f);
         int x = -w / 2, y = -h / 2;
-        ctx.fill(x - 2, y - 2, x + w + 2, y + h + 2, Ui.GOLD_DARK);
-        ctx.fill(x, y, x + w, y + h, Ui.BG_SOLID);
-        ctx.drawCenteredTextWithShadow(textRenderer, "GodBox 3.2 — управление", 0, y + 6, Ui.GOLD);
+        if (Art.on()) {
+            Art.panel(ctx, x - 6, y - 6, w + 12, h + 12);
+            Art.ribbon(ctx, -90, y + 3, 180, 14);
+        } else {
+            ctx.fill(x - 2, y - 2, x + w + 2, y + h + 2, Ui.GOLD_DARK);
+            ctx.fill(x, y, x + w, y + h, Ui.BG_SOLID);
+        }
+        ctx.drawCenteredTextWithShadow(textRenderer, "GodBox 3.2 — управление", 0, y + 6, Art.on() ? Ui.WHITE : Ui.GOLD);
         for (int i = 0; i < rows.length; i++) {
             ctx.drawTextWithShadow(textRenderer, rows[i][0], x + 10, y + 22 + i * 11, Ui.BLUE);
             ctx.drawTextWithShadow(textRenderer, rows[i][1], x + kw + 24, y + 22 + i * 11, Ui.TEXT);
