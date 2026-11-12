@@ -4,6 +4,7 @@ A dark web interface around `remix.py`, the slowed + pitched-down + reverb + bas
 
 - Search SoundCloud (or paste a track link) and pick a song.
 - Adjust every stage of the remix chain with sliders, or start from a preset.
+- Switch the interface between English and Russian with the EN / RU buttons (remembered per browser).
 - Render a 45-second preview or the full track, listen in the built-in player,
   flip between remix and original at the same spot, and download the MP3.
 
