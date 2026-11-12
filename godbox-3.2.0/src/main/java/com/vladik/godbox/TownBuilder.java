@@ -163,12 +163,20 @@ final class TownBuilder {
         }
     }
 
+    /** Цоколь дома любой из эпох (природный камень сюда не входит). */
+    private static boolean foundation(BlockState cur, BlockState s) {
+        if (cur.isOf(s.getBlock())) return true;
+        for (int e = 0; e <= 10; e++) if (cur.isOf(st(e, H, Blocks.STONE_BRICKS).getBlock())) return true;
+        return false;
+    }
+
     /** Опускает цоколь по колонке до природной земли (до 10 блоков), чтобы угол дома не висел над склоном. */
     static void sink(Job j, int x, int z, int yFrom, BlockState s) {
         for (int yy = yFrom; yy >= yFrom - 10 && yy > j.w.getBottomY(); yy--) {
             BlockPos p = new BlockPos(x, yy, z);
             BlockState cur = j.w.getBlockState(p);
-            if (cur.isSolidBlock(j.w, p) && !(j.dry && cur.isOf(s.getBlock()))) break;
+            // при перекраске цоколь прежней эпохи не считается землёй: идём вниз по всем его вариантам
+            if (cur.isSolidBlock(j.w, p) && !(j.dry && foundation(cur, s))) break;
             j.put(p, s);
         }
     }
@@ -385,9 +393,7 @@ final class TownBuilder {
     }
 
     /** Фонарный столб. */
-    static void lamp(Job j, int era, int x, int z) {
-        if (!dry(j.w, x, z)) return;
-        int y = ground(j.w, x, z);
+    static void lamp(Job j, int era, int x, int y, int z) {
         BlockState post = era >= 5 ? st(era, H, Blocks.STONE_BRICK_WALL) : Blocks.OAK_FENCE.getDefaultState();
         for (int dy = 0; dy < 3; dy++) j.put(new BlockPos(x, y + dy, z), post);
         j.put(new BlockPos(x, y + 3, z), era >= 3 ? Blocks.LANTERN.getDefaultState() : Blocks.TORCH.getDefaultState());
