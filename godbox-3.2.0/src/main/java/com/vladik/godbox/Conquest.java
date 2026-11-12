@@ -184,6 +184,7 @@ public final class Conquest {
             conv++;
         }
         towns(a).add(p);
+        Props.transfer(d, a, p, 45);
         Plague.carry(d, a, 0.4, "с жителями захваченного города из");
         Treaties.captured(a, d);
         recolor(d.world, d.wool, a.wool, p, 45);

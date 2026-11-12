@@ -2,7 +2,11 @@ package com.vladik.godbox;
 
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.RegistryKeys;
+import net.minecraft.util.Identifier;
 import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.passive.VillagerEntity;
@@ -25,7 +29,7 @@ import java.util.List;
 /**
  * Осадные орудия на колёсах: катапульта (эпоха механики) и пушка (порох). Орудие — модель на невидимой стойке-носителе:
  * его выкатывают к войску, расчёт (ближайшие солдаты королевства) стреляет из него и катит вслед за осадой,
- * а вражеские солдаты рядом ломают его. Стойки не сохраняются в мир — после перезапуска орудий нет.
+ * а вражеские солдаты рядом ломают его. Стойки не сохраняются в мир; орудия пишутся через SaveExt и собираются заново, когда чанк загружен.
  */
 public final class SiegeEngines {
     public static final String TAG = "gb_siege";
@@ -239,8 +243,20 @@ public final class SiegeEngines {
             y = groundY(w, x, z, m.getBlockY());
             if (y == Integer.MIN_VALUE) return null;
         }
-        // стойка-носитель не сохраняется в мир: орудия — расходная часть осады
-        ArmorStandEntity s = new ArmorStandEntity(w, MathHelper.floor(x) + 0.5, y, MathHelper.floor(z) + 0.5) {
+        double sx = MathHelper.floor(x) + 0.5, sz = MathHelper.floor(z) + 0.5;
+        float yaw = (float) (MathHelper.atan2(target.getZ() + 0.5 - sz, target.getX() + 0.5 - sx) * 180.0 / Math.PI) - 90f;
+        ArmorStandEntity s = spawnStand(w, type, sx, y, sz, yaw);
+        if (s == null) return null;
+        Engine e = new Engine(s, k, type);
+        e.crew = m;
+        ENGINES.add(e);
+        Fx.sound(w, s.getX(), s.getY(), s.getZ(), SoundEvents.BLOCK_ANVIL_LAND, 0.6f, 0.7f);
+        return e;
+    }
+
+    /** Стойка-носитель не сохраняется в мир (орудия пишутся через SaveExt и собираются заново), поэтому сирот не бывает. */
+    private static ArmorStandEntity spawnStand(ServerWorld w, Type type, double x, double y, double z, float yaw) {
+        ArmorStandEntity s = new ArmorStandEntity(w, x, y, z) {
             @Override
             public boolean shouldSave() {
                 return false;
@@ -252,17 +268,13 @@ public final class SiegeEngines {
         s.setInvulnerable(true);
         s.setSilent(true);
         s.addCommandTag(TAG);
-        s.refreshPositionAndAngles(s.getX(), s.getY(), s.getZ(), yawTo(s, target.getX() + 0.5, target.getZ() + 0.5), 0f);
+        s.refreshPositionAndAngles(x, y, z, yaw, 0f);
         if (!w.spawnEntity(s)) return null;
         if (!Models.attach(s, type.model)) {
             s.discard();
             return null;
         }
-        Engine e = new Engine(s, k, type);
-        e.crew = m;
-        ENGINES.add(e);
-        Fx.sound(w, s.getX(), s.getY(), s.getZ(), SoundEvents.BLOCK_ANVIL_LAND, 0.6f, 0.7f);
-        return e;
+        return s;
     }
 
     private static void remove(Engine e) {
@@ -301,9 +313,70 @@ public final class SiegeEngines {
         return c;
     }
 
+    // ---------------------------------------------------------------- сохранение
+
+    /** Орудие, ожидающее загрузки своего чанка. */
+    private record Rec(Type type, Kingdoms.K k, String world, double x, double y, double z, float yaw, float hp) {}
+
+    private static final List<Rec> PENDING = new ArrayList<>();
+
+    /** Вызывается из Systems.registerDefaults (до загрузки мира). */
+    static void init() {
+        SaveExt.register("siege", SiegeEngines::saveLines, SiegeEngines::loadLine, SiegeEngines::clear);
+    }
+
+    private static Rec recOf(Engine e) {
+        ArmorStandEntity s = e.stand;
+        return new Rec(e.type, e.k, s.getWorld().getRegistryKey().getValue().toString(), s.getX(), s.getY(), s.getZ(), s.getYaw(), e.hp);
+    }
+
+    private static List<String> saveLines() {
+        List<Rec> all = new ArrayList<>(PENDING);
+        for (Engine e : ENGINES) {
+            boolean unloaded = e.stand.isRemoved() && e.stand.getRemovalReason() == Entity.RemovalReason.UNLOADED_TO_CHUNK;
+            if ((!e.stand.isRemoved() || unloaded) && e.k.alive) all.add(recOf(e));
+        }
+        List<String> out = new ArrayList<>();
+        for (Rec r : all) out.add(r.type.name() + "|" + r.k.name() + "|" + r.world + "|" + r.x + "|" + r.y + "|" + r.z + "|" + r.yaw + "|" + r.hp);
+        return out;
+    }
+
+    private static void loadLine(String[] a) {
+        if (PENDING.size() >= 64) return;
+        try {
+            PENDING.add(new Rec(Type.valueOf(a[0]), Kingdoms.K.valueOf(a[1]), a[2], Double.parseDouble(a[3]), Double.parseDouble(a[4]),
+                    Double.parseDouble(a[5]), Float.parseFloat(a[6]), Float.parseFloat(a[7])));
+        } catch (Exception ex) {
+            GodBox.LOG.warn("GodBox: орудие в сохранении не разобрано: {}", String.join("|", a));
+        }
+    }
+
+    /** Поднимает орудия, чей чанк уже загружен; чанки не грузятся принудительно. */
+    private static void restorePending(MinecraftServer srv) {
+        for (Iterator<Rec> it = PENDING.iterator(); it.hasNext(); ) {
+            Rec r = it.next();
+            ServerWorld w = null;
+            Identifier id = Identifier.tryParse(r.world);
+            if (id != null) w = srv.getWorld(RegistryKey.of(RegistryKeys.WORLD, id));
+            if (w == null || !r.k.alive || r.k.world != w || !atWar(r.k) || !Models.custom() || !ModelParts.has(r.type.model)) {
+                it.remove();
+                continue;
+            }
+            if (!w.isChunkLoaded(BlockPos.ofFloored(r.x, r.y, r.z))) continue;
+            it.remove();
+            ArmorStandEntity s = spawnStand(w, r.type, r.x, r.y, r.z, r.yaw);
+            if (s == null) continue;
+            Engine e = new Engine(s, r.k, r.type);
+            e.hp = r.hp;
+            ENGINES.add(e);
+        }
+    }
+
     public static void tick(MinecraftServer srv) {
-        if (ENGINES.isEmpty()) return;
+        if (ENGINES.isEmpty() && PENDING.isEmpty()) return;
         t++;
+        if (!PENDING.isEmpty() && t % 20 == 0) restorePending(srv);
+        if (ENGINES.isEmpty()) return;
         if (t % 2 == 0) {
             double step = Config.d("siege.speed", 1.2) / 10.0;
             for (Engine e : ENGINES) if (e.go && !e.stand.isRemoved() && e.stand.getWorld() instanceof ServerWorld w) roll(w, e, step);
@@ -313,6 +386,13 @@ public final class SiegeEngines {
         double dmg = Config.d("siege.damage", 2.0);
         for (Iterator<Engine> it = new ArrayList<>(ENGINES).iterator(); it.hasNext(); ) {
             Engine e = it.next();
+            if (e.stand.isRemoved() && e.stand.getRemovalReason() == Entity.RemovalReason.UNLOADED_TO_CHUNK && e.k.alive) {
+                // чанк выгружен: орудие ждёт его возвращения
+                PENDING.add(recOf(e));
+                ENGINES.remove(e);
+                Models.detach(e.stand);
+                continue;
+            }
             if (!(e.stand.getWorld() instanceof ServerWorld w) || e.stand.isRemoved() || !e.k.alive || e.k.world != w || !atWar(e.k)) {
                 remove(e);
                 continue;
@@ -348,6 +428,7 @@ public final class SiegeEngines {
             e.stand.discard();
         }
         ENGINES.clear();
+        PENDING.clear();
         t = 0;
     }
 }
