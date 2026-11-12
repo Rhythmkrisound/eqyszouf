@@ -46,6 +46,23 @@ public final class Eras {
 
     private Eras() {}
 
+    /** Эпоха, в стиле которой сейчас строится чертёж: обычно эпоха города, при подборе эпохи по виду — пробная. */
+    private static int forced = -1;
+
+    static int eraOf(Kingdoms.K k) { return forced >= 0 ? forced : Civ.city(k).era; }
+
+    /** Блоки, которые эпохи подменяют друг другом (ключи и все значения таблицы). */
+    private static Set<Block> known;
+
+    static boolean known(BlockState s) {
+        if (known == null) {
+            Set<Block> t = new HashSet<>(MAP.keySet());
+            for (Block[] a : MAP.values()) for (Block b : a) if (b != null) t.add(b);
+            known = t;
+        }
+        return known.contains(s.getBlock());
+    }
+
     private static Block[] of(Block... b) { return b; }
 
     private static void row(Block[] from, Block... to) { for (Block f : from) MAP.put(f, to); }
@@ -113,13 +130,13 @@ public final class Eras {
     }
 
     static void apply(Kingdoms.K k, Civ.Kind kind, List<BlockState> ss) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         for (int i = 0; i < ss.size(); i++) ss.set(i, Races.style(k, style(e, kind, ss.get(i))));
     }
 
     /** Украшения, которые появляются только в поздних эпохах. */
     static void decor(Kingdoms.K k, Civ.Building b, Civ.Project p) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         int y0 = b.y0;
         if (b.kind == Civ.Kind.HOUSE) {
             int top = y0 + 3 + Arch.gableHeight(b.x0, b.z0, b.x1, b.z1);
