@@ -92,7 +92,7 @@ public class GodScreen extends Screen {
         fovEffectWas = client.options.getFovEffectScale().getValue();
         client.options.getFovEffectScale().setValue(0.0);
         targetY = client.player.getY();
-        toast("GodBox 3.0 — I: справка, ПКМ по силе: в избранное", 0xFFFFD700);
+        toast("GodBox 3.2 — I: справка, ПКМ по силе: в избранное", 0xFFFFD700);
     }
 
     @Override
@@ -531,7 +531,7 @@ public class GodScreen extends Screen {
         int x = -w / 2, y = -h / 2;
         ctx.fill(x - 2, y - 2, x + w + 2, y + h + 2, Ui.GOLD_DARK);
         ctx.fill(x, y, x + w, y + h, Ui.BG_SOLID);
-        ctx.drawCenteredTextWithShadow(textRenderer, "GodBox 3.0 — управление", 0, y + 6, Ui.GOLD);
+        ctx.drawCenteredTextWithShadow(textRenderer, "GodBox 3.2 — управление", 0, y + 6, Ui.GOLD);
         for (int i = 0; i < rows.length; i++) {
             ctx.drawTextWithShadow(textRenderer, rows[i][0], x + 10, y + 22 + i * 11, Ui.BLUE);
             ctx.drawTextWithShadow(textRenderer, rows[i][1], x + kw + 24, y + 22 + i * 11, Ui.TEXT);
