@@ -27,6 +27,7 @@ public class GodBox implements ModInitializer {
         Config.load();
         Models.init();
         Guns.init();
+        GodParticles.init();
         ServerLifecycleEvents.SERVER_STARTED.register(Save::load);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> Config.flush());
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -42,6 +43,7 @@ public class GodBox implements ModInitializer {
         Seasons.init();
         Events.init();
         History.init();
+        Chronicle.init();
         Inspect.init();
         Plague.init();
         LOG.info("GodBox {} loaded: {} systems, {} powers. Press G in game to become a god", VERSION, Systems.all().size(), Power.values().length);
@@ -53,6 +55,7 @@ public class GodBox implements ModInitializer {
         PayloadTypeRegistry.playS2C().register(Payloads.State.ID, Payloads.State.CODEC);
         PayloadTypeRegistry.playS2C().register(Payloads.Stats.ID, Payloads.Stats.CODEC);
         PayloadTypeRegistry.playS2C().register(Payloads.Borders.ID, Payloads.Borders.CODEC);
+        PayloadTypeRegistry.playS2C().register(Payloads.Titles.ID, Payloads.Titles.CODEC);
         PayloadTypeRegistry.playS2C().register(Payloads.Hud.ID, Payloads.Hud.CODEC);
         ServerPlayNetworking.registerGlobalReceiver(Payloads.Toggle.ID, (payload, ctx) -> {
             ServerPlayerEntity player = ctx.player();
@@ -83,6 +86,7 @@ public class GodBox implements ModInitializer {
             player.getServer().execute(() -> History.request(player));
         });
         Inspect.registerNetwork();
+        ChronicleNet.register();
         PayloadTypeRegistry.playS2C().register(com.vladik.godbox.net.MortalPayloads.MortalHud.ID, com.vladik.godbox.net.MortalPayloads.MortalHud.CODEC);
     }
 }

@@ -27,6 +27,8 @@ final class TownBuilder {
         boolean dry;
         /** Вызывается один раз, когда всё выложено. */
         Runnable onDone;
+        /** Игровое время последнего тика задачи: по нему видно, что задача погибла. */
+        long seen;
 
         Job(ServerWorld w) { this.w = w; }
 
@@ -34,6 +36,7 @@ final class TownBuilder {
 
         @Override
         public boolean tick() {
+            seen = w.getTime();
             boolean end = step();
             if (end && onDone != null) {
                 Runnable r = onDone;
@@ -163,12 +166,20 @@ final class TownBuilder {
         }
     }
 
+    /** Цоколь дома любой из эпох (природный камень сюда не входит). */
+    private static boolean foundation(BlockState cur, BlockState s) {
+        if (cur.isOf(s.getBlock())) return true;
+        for (int e = 0; e <= 10; e++) if (cur.isOf(st(e, H, Blocks.STONE_BRICKS).getBlock())) return true;
+        return false;
+    }
+
     /** Опускает цоколь по колонке до природной земли (до 10 блоков), чтобы угол дома не висел над склоном. */
     static void sink(Job j, int x, int z, int yFrom, BlockState s) {
         for (int yy = yFrom; yy >= yFrom - 10 && yy > j.w.getBottomY(); yy--) {
             BlockPos p = new BlockPos(x, yy, z);
             BlockState cur = j.w.getBlockState(p);
-            if (cur.isSolidBlock(j.w, p) && !(j.dry && cur.isOf(s.getBlock()))) break;
+            // при перекраске цоколь прежней эпохи не считается землёй: идём вниз по всем его вариантам
+            if (cur.isSolidBlock(j.w, p) && !(j.dry && foundation(cur, s))) break;
             j.put(p, s);
         }
     }
@@ -385,9 +396,7 @@ final class TownBuilder {
     }
 
     /** Фонарный столб. */
-    static void lamp(Job j, int era, int x, int z) {
-        if (!dry(j.w, x, z)) return;
-        int y = ground(j.w, x, z);
+    static void lamp(Job j, int era, int x, int y, int z) {
         BlockState post = era >= 5 ? st(era, H, Blocks.STONE_BRICK_WALL) : Blocks.OAK_FENCE.getDefaultState();
         for (int dy = 0; dy < 3; dy++) j.put(new BlockPos(x, y + dy, z), post);
         j.put(new BlockPos(x, y + 3, z), era >= 3 ? Blocks.LANTERN.getDefaultState() : Blocks.TORCH.getDefaultState());
@@ -467,6 +476,10 @@ final class TownBuilder {
         List<Civ.Building> houses = new ArrayList<>();
         int cx = c.getX(), cz = c.getZ();
         TOWN_ERA.put(c.asLong(), era);
+        long tkey = c.asLong();
+        UNDER_BUILD.put(tkey, j);
+        j.seen = w.getTime();
+        List<Props.Prop> props = new ArrayList<>();
         plaza(j, k, era, c);
         // {смещение x, тип, сторона: 0 = к северу от улицы (дверь на юг), 1 = к югу (дверь на север)}
         int[][] plots = PLOTS;
@@ -488,7 +501,7 @@ final class TownBuilder {
                 default -> cottage(j, era, Civ.REV, x0, z0, y, south);
             }
             for (int q = from; q < j.ss.size(); q++) j.ss.set(q, Races.style(k, j.ss.get(q)));
-            Civ.Building b = new Civ.Building(Civ.Kind.HOUSE, x0, z0, y);
+            Civ.Building b = new Civ.Building(Civ.Kind.HOUSE, x0, z0, y, wd, dp);
             b.done = true;
             b.era = era;
             b.rev = Civ.REV;
@@ -501,14 +514,17 @@ final class TownBuilder {
                 garden(j, x0, gz0, x1, gz0 + 2, y, i + era);
             pave(j, era, c.getY(), mxp, south ? z1 + 1 : z0 - 1);
         }
-        if (dry(w, cx, cz - 5)) well(j, era, cx, cz - 5, ground(w, cx, cz - 5));
+        if (dry(w, cx, cz - 5)) prop(j, props, Props.Kind.WELL, k, cx, ground(w, cx, cz - 5), cz - 5, 0, era);
         if (era >= 2) {
-            if (dry(w, cx - 2, cz + 5)) stall(j, k, cx - 3, cz + 4, ground(w, cx - 2, cz + 5), cx + era);
-            if (dry(w, cx + 2, cz + 5)) stall(j, k, cx + 1, cz + 4, ground(w, cx + 2, cz + 5), cz + era + 1);
+            if (dry(w, cx - 2, cz + 5)) prop(j, props, Props.Kind.STALL, k, cx - 3, ground(w, cx - 2, cz + 5), cz + 4, cx + era, era);
+            if (dry(w, cx + 2, cz + 5)) prop(j, props, Props.Kind.STALL, k, cx + 1, ground(w, cx + 2, cz + 5), cz + 4, cz + era + 1, era);
         }
         street(j, era, c, cx - 20, cz - 1, cx + 20, cz + 1);
         int[][] lamps = {{4, -2}, {-4, 2}, {-20, 0}, {20, 0}, {10, -2}, {-16, 2}, {-6, -2}, {-12, -2}};
-        for (int[] q : lamps) lamp(j, era, cx + q[0], cz + q[1]);
+        for (int[] q : lamps) {
+            int lx = cx + q[0], lz = cz + q[1];
+            if (dry(w, lx, lz)) prop(j, props, Props.Kind.LAMP, k, lx, ground(w, lx, lz), lz, 0, era);
+        }
         int fx = cx - 3, fz = cz + 9;
         int fy = ground(w, fx + 3, fz + 3);
         boolean fdry = dry(w, fx + 3, fz + 3) && dry(w, fx, fz) && dry(w, fx + 6, fz + 6);
@@ -521,8 +537,53 @@ final class TownBuilder {
         // пока дома выкладываются, их нельзя ни чинить по снимку, ни перекрашивать
         j.onDone = () -> {
             for (Civ.Building hb : houses) hb.busy = false;
+            for (Props.Prop pp : props) pp.busy = false;
+            UNDER_BUILD.remove(tkey);
         };
         Tasks.add(j);
+    }
+
+    /** Записывает малую постройку города и кладёт её чертёж в очередь. */
+    private static void prop(Job j, List<Props.Prop> props, Props.Kind kind, Kingdoms.K k, int x, int y, int z, int arg, int era) {
+        Props.Prop p = Props.add(kind, k, x, y, z, arg, era);
+        props.add(p);
+        Props.build(j, p, era);
+    }
+
+    /** Города, которые ещё выкладываются: их улицы и площадь перекрашивать рано. */
+    private static final java.util.Map<Long, Job> UNDER_BUILD = new java.util.HashMap<>();
+
+    /** Если задача города не тикала 10 секунд (погибла), снимает отметку и блокировку построек. */
+    static boolean underBuild(long townKey) {
+        Job j = UNDER_BUILD.get(townKey);
+        if (j == null) return false;
+        if (j.w.getTime() - j.seen > 200 && j.onDone != null) {
+            Runnable r = j.onDone;
+            j.onDone = null;
+            r.run();
+            return false;
+        }
+        return true;
+    }
+
+    static void clearBuilds() { UNDER_BUILD.clear(); }
+
+    /** Ширина и глубина дома города по его типу. */
+    static int[] dims(int type) { return new int[]{type == LONG ? 9 : 5, type == TALL ? 6 : 5}; }
+
+    /**
+     * Дома города регистрировались с участком 5×5, хотя длинные и высокие крупнее (5×6, 9×5): по рисунку участка
+     * границы выправляются и у старых сохранений (геометрия дома от версии чертежа не зависит).
+     */
+    static void fit(Civ.Building b) {
+        if (b.fitted) return;
+        b.fitted = true;
+        if (b.kind != Civ.Kind.HOUSE) return;
+        int pl = plotOf(b);
+        if (pl < 0) return;
+        int[] d = dims(pl >> 1);
+        b.x1 = b.x0 + d[0] - 1;
+        b.z1 = b.z0 + d[1] - 1;
     }
 
     // ---------------- перекраска готового города ----------------
