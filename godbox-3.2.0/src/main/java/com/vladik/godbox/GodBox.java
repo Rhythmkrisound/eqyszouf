@@ -27,6 +27,7 @@ public class GodBox implements ModInitializer {
         Config.load();
         Models.init();
         Guns.init();
+        GodParticles.init();
         ServerLifecycleEvents.SERVER_STARTED.register(Save::load);
         ServerLifecycleEvents.SERVER_STARTED.register(server -> Config.flush());
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -42,6 +43,7 @@ public class GodBox implements ModInitializer {
         Seasons.init();
         Events.init();
         History.init();
+        Chronicle.init();
         Inspect.init();
         Plague.init();
         LOG.info("GodBox {} loaded: {} systems, {} powers. Press G in game to become a god", VERSION, Systems.all().size(), Power.values().length);
@@ -83,6 +85,7 @@ public class GodBox implements ModInitializer {
             player.getServer().execute(() -> History.request(player));
         });
         Inspect.registerNetwork();
+        ChronicleNet.register();
         PayloadTypeRegistry.playS2C().register(com.vladik.godbox.net.MortalPayloads.MortalHud.ID, com.vladik.godbox.net.MortalPayloads.MortalHud.CODEC);
     }
 }

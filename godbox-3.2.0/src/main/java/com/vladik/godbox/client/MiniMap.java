@@ -71,11 +71,13 @@ final class MiniMap {
     static void render(DrawContext ctx, MinecraftClient mc, int x, int y, int s) {
         if (!on || mc.world == null || mc.player == null) return;
         if (tex == null || !ready) {
-            ctx.fill(x, y, x + s, y + s, 0xC0000000);
+            if (Art.on()) Art.inset(ctx, x, y, s, s);
+            else ctx.fill(x, y, x + s, y + s, 0xC0000000);
             ctx.drawCenteredTextWithShadow(mc.textRenderer, "карта…", x + s / 2, y + s / 2 - 4, 0xFFAAAAAA);
             return;
         }
-        ctx.fill(x - 2, y - 2, x + s + 2, y + s + 2, 0xFF3A2A10);
+        if (Art.on()) Art.frame(ctx, x - 3, y - 3, s + 6, s + 6);
+        else ctx.fill(x - 2, y - 2, x + s + 2, y + s + 2, 0xFF3A2A10);
         ctx.drawTexture(ID, x, y, 0, 0, s, s, s, s);
         double k = s / (double) SIZE;
         double ox = cx - SIZE / 2.0, oz = cz - SIZE / 2.0;
@@ -95,7 +97,7 @@ final class MiniMap {
         double yr = Math.toRadians(mc.player.getYaw());
         int dx = (int) (-Math.sin(yr) * 6), dz = (int) (Math.cos(yr) * 6);
         ctx.fill(ix + dx - 1, iz + dz - 1, ix + dx + 1, iz + dz + 1, 0xFFFF4040);
-        ctx.drawBorder(x - 1, y - 1, s + 2, s + 2, 0xFFFFD700);
+        if (!Art.on()) ctx.drawBorder(x - 1, y - 1, s + 2, s + 2, 0xFFFFD700);
         ctx.drawTextWithShadow(mc.textRenderer, "N", x + s / 2 - 2, y + 2, 0xFFFFFFFF);
     }
 

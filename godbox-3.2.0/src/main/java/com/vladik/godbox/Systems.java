@@ -126,6 +126,13 @@ public final class Systems {
         Treaties.init();
         tick("mortal", Mortal::tick);
         clear(Mortal::clear);
+        SiegeEngines.init();
+        KingdomNames.init();
+        GodManager.init();
+        tick("godCheck", GodManager::tick);
+        tick("victory", Victory::tick);
+        Victory.init();
+        clear(Victory::clear);
 
         clear(Creatures::clear, Kings::clear, WorldAges::clear, Ships::clear,
                 Colonies::clear, Tech::clear, Wonders::clear, Magic::clear, Guns::clear, SiegeEngines::clear, Navy::clear, Roads::clear, Siege::clear,
