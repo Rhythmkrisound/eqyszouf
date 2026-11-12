@@ -208,6 +208,7 @@ public final class Events {
             }
             if (!k.alive || k.world == null || k.capital == null) continue;
             if (r.nextInt(Math.max(1, Config.i("events.chance", 4))) == 0) fire(s, k, pick(k, r));
+            Meteors.natural(k);
         }
     }
 

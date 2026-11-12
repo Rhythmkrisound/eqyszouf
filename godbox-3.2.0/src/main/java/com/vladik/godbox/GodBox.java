@@ -41,6 +41,7 @@ public class GodBox implements ModInitializer {
         Eras.init();
         Highways.init();
         Seasons.init();
+        SeasonNet.register();
         Events.init();
         History.init();
         Chronicle.init();

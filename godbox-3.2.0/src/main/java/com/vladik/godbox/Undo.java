@@ -54,7 +54,7 @@ public final class Undo {
     }
 
     public static boolean active(World w) {
-        return current != null && !restoring && current.w == w;
+        return current != null && !restoring && !SeasonWorld.quiet && current.w == w;
     }
 
     public static void record(BlockPos p, BlockState old) {
