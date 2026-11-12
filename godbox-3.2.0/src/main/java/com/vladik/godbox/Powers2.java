@@ -308,13 +308,7 @@ public final class Powers2 {
                     Tasks.add(new Powers2.GreyGoo(w, pos.up(), 2500 + brush * 300));
                     break;
                 case METEOR_RAIN:
-                    int spread = 8 + brush * 2;
-
-                    for (int i = 0; i < 10; i++) {
-                        int x = pos.getX() + r.nextInt(spread * 2 + 1) - spread;
-                        int z = pos.getZ() + r.nextInt(spread * 2 + 1) - spread;
-                        Tasks.delay(1 + i * 7 + r.nextInt(5), () -> Tasks.add(new Disasters.Meteor(w, Fx.surface(w, x, z).down())));
-                    }
+                    Meteors.rain(w, pos, brush);
                     break;
                 case VOLCANO:
                     Tasks.add(new Powers2.Volcano(w, pos.up(), 8 + brush));
