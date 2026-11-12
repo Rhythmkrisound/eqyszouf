@@ -127,26 +127,10 @@ public final class Economy {
                 for (int dz = -4; dz <= 4; dz += 2) if (Roads.inBuilding(bs, x + dx, z + dz)) { clash = true; break; }
             if (clash) continue;
             int y = TownBuilder.ground(w, x, z);
-            Highways.Place pl = new Highways.Place(w);
-            Block floor = Eras.style(c.era, Civ.Kind.HOUSE, Blocks.STONE_BRICKS.getDefaultState()).getBlock();
-            Block post = Eras.style(c.era, Civ.Kind.HOUSE, Blocks.OAK_FENCE.getDefaultState()).getBlock();
-            for (int dx = -3; dx <= 3; dx++)
-                for (int dz = -3; dz <= 3; dz++) {
-                    pl.put(new BlockPos(x + dx, y - 1, z + dz), floor);
-                    for (int h = 0; h <= 4; h++) pl.put(new BlockPos(x + dx, y + h, z + dz), Blocks.AIR);
-                    if (Math.abs(dx) >= 1) pl.put(new BlockPos(x + dx, y + 3, z + dz), (dz & 1) == 0 ? k.wool : Blocks.WHITE_WOOL);
-                }
-            for (int px : new int[]{-3, -1, 1, 3})
-                for (int pz : new int[]{-3, 3})
-                    for (int h = 0; h < 3; h++) pl.put(new BlockPos(x + px, y + h, z + pz), post);
-            pl.put(new BlockPos(x - 2, y, z - 2), Blocks.BARREL);
-            pl.put(new BlockPos(x - 2, y, z + 1), Blocks.HAY_BLOCK);
-            pl.put(new BlockPos(x + 2, y, z - 1), Blocks.BARREL);
-            pl.put(new BlockPos(x + 2, y, z + 2), Blocks.COMPOSTER);
-            pl.put(new BlockPos(x + 2, y, z), Blocks.SMITHING_TABLE);
-            pl.put(new BlockPos(x - 2, y, z), Blocks.LOOM);
-            pl.put(new BlockPos(x, y, z), Blocks.BELL);
-            pl.put(new BlockPos(x, y + 4, z), Blocks.LANTERN);
+            TownBuilder.Job pl = new TownBuilder.Job(w);
+            Props.Prop mp = Props.add(Props.Kind.MARKET, k, x, y, z, 0, c.era);
+            Props.build(pl, mp, c.era);
+            pl.onDone = () -> mp.busy = false;
             Tasks.add(pl);
             MARKET.put(k, new BlockPos(x, y, z));
             Chronicle.say(w.getServer(), k, "открывает рынок — теперь излишки продаются за золото");

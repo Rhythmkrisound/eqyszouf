@@ -73,6 +73,7 @@ public final class Stats {
         }
         if (!any) s.append("\u00a77Королевств пока нет. Создай их во вкладке «Королевства».");
         s.append('\u0002');
+        s.append("\u00a7e\u2691 ").append(Victory.status()).append('\n');
         List<String> l = Chronicle.last(12);
         if (l.isEmpty()) s.append("\u00a78Летопись пока пуста");
         for (int i = l.size() - 1; i >= 0; i--) {

@@ -46,6 +46,17 @@ public final class Payloads {
         }
     }
 
+    /** server -> client: названия 12 королевств через \n в порядке Kingdoms.K */
+    public record Titles(String data) implements CustomPayload {
+        public static final CustomPayload.Id<Titles> ID = new CustomPayload.Id<>(Identifier.of("godbox", "titles"));
+        public static final PacketCodec<RegistryByteBuf, Titles> CODEC = PacketCodec.tuple(PacketCodecs.STRING, Titles::data, Titles::new);
+
+        @Override
+        public Id<? extends CustomPayload> getId() {
+            return ID;
+        }
+    }
+
     public record Borders(String data) implements CustomPayload {
         public static final CustomPayload.Id<Borders> ID = new CustomPayload.Id<>(Identifier.of("godbox", "borders"));
         public static final PacketCodec<RegistryByteBuf, Borders> CODEC = PacketCodec.tuple(PacketCodecs.STRING, Borders::data, Borders::new);

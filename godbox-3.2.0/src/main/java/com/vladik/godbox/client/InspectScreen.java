@@ -85,8 +85,11 @@ public class InspectScreen extends Screen {
         if (followName == null) return;
         String s = "📷 Слежка: " + followName + "  ·  V — прекратить";
         int w = tr.getWidth(s) + 14, y = WorldPanels.bottom() + 24; // сразу под строкой подсказки, не доходя до нижней панели
-        ctx.fill(width / 2 - w / 2, y, width / 2 + w / 2, y + 14, 0xD0101018);
-        ctx.fill(width / 2 - w / 2, y + 13, width / 2 + w / 2, y + 14, 0xFF80FFFF);
+        if (Art.on()) Art.tooltip(ctx, width / 2 - w / 2, y, w, 14);
+        else {
+            ctx.fill(width / 2 - w / 2, y, width / 2 + w / 2, y + 14, 0xD0101018);
+            ctx.fill(width / 2 - w / 2, y + 13, width / 2 + w / 2, y + 14, 0xFF80FFFF);
+        }
         ctx.drawCenteredTextWithShadow(tr, s, width / 2, y + 3, 0xFF80FFFF);
     }
 
@@ -318,8 +321,11 @@ public class InspectScreen extends Screen {
     public void renderBackground(DrawContext ctx, int mx, int my, float delta) {
         // лёгкое затемнение без размытия — мир остаётся виден
         ctx.fill(0, 0, width, height, 0x70000000);
-        ctx.fill(px - 2, py - 2, px + pw + 2, py + ph + 2, 0xFF6B4E22);
-        ctx.fill(px, py, px + pw, py + ph, 0xF0141418);
+        if (Art.on()) Art.panel(ctx, px - 2, py - 2, pw + 4, ph + 4);
+        else {
+            ctx.fill(px - 2, py - 2, px + pw + 2, py + ph + 2, 0xFF6B4E22);
+            ctx.fill(px, py, px + pw, py + ph, 0xF0141418);
+        }
         renderLeft(ctx, mx, my);
         renderTree(ctx, mx, my);
     }
@@ -329,8 +335,14 @@ public class InspectScreen extends Screen {
         int x = px + 6, y = py + 6;
         int rgb = p.kingdom().isEmpty() ? 0xFFFFFF : p.rgb();
         LivingEntity e = entity();
-        ctx.fill(x, y, x + LW, y + 62, 0xC0262630);
-        ctx.fill(x, y, x + 2, y + 62, 0xFF000000 | rgb);
+        com.vladik.godbox.Kingdoms.K kg = p.kingdom().isEmpty() ? null : Art.forRgb(p.rgb());
+        if (Art.on()) {
+            Art.inset(ctx, x, y, LW, 62);
+            ctx.fill(x + 3, y + 3, x + 5, y + 59, 0xFF000000 | rgb);
+        } else {
+            ctx.fill(x, y, x + LW, y + 62, 0xC0262630);
+            ctx.fill(x, y, x + 2, y + 62, 0xFF000000 | rgb);
+        }
         if (e != null) {
             InventoryScreen.drawEntity(ctx, x + 2, y + 1, x + LW, y + 61, 26, 0.0625f, mx, my, e);
         } else {
@@ -341,7 +353,10 @@ public class InspectScreen extends Screen {
         String name = (p.alive() ? "" : "† ") + p.name();
         ctx.drawTextWithShadow(tr, tr.trimToWidth(name, LW), x, y, p.alive() ? 0xFF000000 | brighten(rgb) : 0xFF9A9A9A);
         y += 10;
-        ctx.drawTextWithShadow(tr, tr.trimToWidth(p.kingdom().isEmpty() ? "без королевства" : p.kingdom(), LW), x, y, 0xFF9A9A9A);
+        if (kg != null) {
+            Art.emblem(ctx, kg, x, y - 2, 12);
+            ctx.drawTextWithShadow(tr, tr.trimToWidth(p.kingdom(), LW - 15), x + 15, y, 0xFF9A9A9A);
+        } else ctx.drawTextWithShadow(tr, tr.trimToWidth(p.kingdom().isEmpty() ? "без королевства" : p.kingdom(), LW), x, y, 0xFF9A9A9A);
         y += 13;
 
         List<OrderedText> out = new ArrayList<>();
@@ -415,9 +430,18 @@ public class InspectScreen extends Screen {
         boolean self = n.rel() == InspectPayloads.SELF;
         int x = s.x, y = s.y;
         int border = self ? 0xFFFFD700 : hov ? 0xFFFFFFFF : n.alive() ? 0xFF5A5A66 : 0xFF3A3A3A;
-        ctx.fill(x, y, x + BW, y + BH, border);
-        ctx.fill(x + 1, y + 1, x + BW - 1, y + BH - 1, n.alive() ? (hov ? 0xFF34343F : 0xFF262630) : (hov ? 0xFF262626 : 0xFF1A1A1A));
-        ctx.fill(x + 1, y + 1, x + 3, y + BH - 1, n.alive() ? 0xFF000000 | n.rgb() : 0xFF555555);
+        com.vladik.godbox.Kingdoms.K kg = Art.on() ? Art.forRgb(n.rgb()) : null;
+        if (Art.on()) {
+            if (n.alive()) Art.button(ctx, x, y, BW, BH, hov, false);
+            else Art.buttonOff(ctx, x, y, BW, BH);
+            if (self) Art.slotSelected(ctx, x, y, BW, BH);
+            ctx.fill(x + 1, y + 3, x + 3, y + BH - 3, n.alive() ? 0xFF000000 | n.rgb() : 0xFF555555);
+            if (kg != null) Art.emblem(ctx, kg, x + BW - 11, y + BH - 11, 8);
+        } else {
+            ctx.fill(x, y, x + BW, y + BH, border);
+            ctx.fill(x + 1, y + 1, x + BW - 1, y + BH - 1, n.alive() ? (hov ? 0xFF34343F : 0xFF262630) : (hov ? 0xFF262626 : 0xFF1A1A1A));
+            ctx.fill(x + 1, y + 1, x + 3, y + BH - 1, n.alive() ? 0xFF000000 | n.rgb() : 0xFF555555);
+        }
         String name = (n.royal() ? "♔ " : "") + n.name();
         ctx.drawTextWithShadow(tr, tr.trimToWidth(name, BW - 8), x + 5, y + 3, n.alive() ? (n.royal() ? 0xFFFFE680 : 0xFFFFFFFF) : 0xFF8A8A8A);
         int a = Math.max(0, (n.alive() ? p.year() : n.died()) - n.born());

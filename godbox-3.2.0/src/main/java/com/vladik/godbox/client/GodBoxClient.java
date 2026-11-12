@@ -20,6 +20,8 @@ public class GodBoxClient implements ClientModInitializer {
                 "key.godbox.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.godbox"));
         GodKeys.init();
         Favorites.load();
+        GodParticlesClient.init();
+        Art.init();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (TOGGLE.wasPressed()) {
@@ -30,6 +32,12 @@ public class GodBoxClient implements ClientModInitializer {
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(BrushPreview::render);
 
+        ClientPlayNetworking.registerGlobalReceiver(Payloads.Titles.ID, (payload, ctx) -> ctx.client().execute(() -> {
+            // в одиночной игре статика общая с сервером и уже верна
+            String[] t = payload.data().split("\n", -1);
+            com.vladik.godbox.Kingdoms.K[] ks = com.vladik.godbox.Kingdoms.K.values();
+            for (int i = 0; i < ks.length && i < t.length; i++) if (!t[i].isEmpty()) ks[i].title = t[i];
+        }));
         ClientPlayNetworking.registerGlobalReceiver(Payloads.Borders.ID, (payload, ctx) -> ctx.client().execute(() -> WorldMap.set(payload.data())));
         ClientPlayNetworking.registerGlobalReceiver(Payloads.Hud.ID, (payload, ctx) -> ctx.client().execute(() ->
         {
@@ -52,6 +60,7 @@ public class GodBoxClient implements ClientModInitializer {
                 WorldMap.history(payload.index(), payload.total(), payload.data())));
         ClientPlayNetworking.registerGlobalReceiver(com.vladik.godbox.net.HistoryPayloads.HistoryOpen.ID, (payload, ctx) -> ctx.client().execute(WorldMap::openReplay));
         InspectScreen.register();
+        ChronicleScreen.register();
         ClientPlayNetworking.registerGlobalReceiver(com.vladik.godbox.net.MortalPayloads.MortalHud.ID, (payload, ctx) -> ctx.client().execute(() -> MortalClient.set(payload)));
     }
 }
