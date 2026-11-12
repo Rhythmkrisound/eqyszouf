@@ -114,13 +114,17 @@ public final class Ecosystem {
                 if (l != null && l != a && a.squaredDistanceTo(l) > 100 && a.squaredDistanceTo(l) < 48 * 48 && a.getTarget() == null)
                     a.getNavigation().startMovingTo(l, 1.0);
             }
-            if (n < 14 && !a.isBaby() && a.getBreedingAge() == 0 && r.nextInt(10) == 0
+            if (n < Seasons.herdCap() && !a.isBaby() && a.getBreedingAge() == 0 && r.nextInt(Seasons.breedDiv()) == 0
                     && w.getBlockState(a.getBlockPos().down()).isOf(Blocks.GRASS_BLOCK)) baby(w, a);
+            // зимой дикие стада редеют от бескормицы
+            else if (Seasons.on && Seasons.index() == Seasons.WINTER && n > Math.max(4, Seasons.herdCap()) && !herd(a) && !kept(w, a) && r.nextInt(6) == 0) {
+                a.damage(w.getDamageSources().starve(), 2f);
+            }
         }
         if (all.size() > 70) {
             for (int i = 0; i < 4; i++) {
                 AnimalEntity a = all.get(r.nextInt(all.size()));
-                if (!herd(a)) a.damage(w.getDamageSources().starve(), 4f);
+                if (!herd(a) && !kept(w, a)) a.damage(w.getDamageSources().starve(), 4f);
             }
         }
         // много добычи и нет хищников — приходит стая
@@ -129,6 +133,11 @@ public final class Ecosystem {
             BlockPos at = Fx.surface(w, a.getBlockX() + r.nextInt(41) - 20, a.getBlockZ() + r.nextInt(41) - 20);
             pack(w, at, r.nextInt(4) == 0 ? EntityType.FOX : EntityType.WOLF, 3);
         }
+    }
+
+    /** Животное, о котором мог позаботиться игрок: с именем, на поводке, постоянное или рядом с игроком. */
+    private static boolean kept(ServerWorld w, AnimalEntity a) {
+        return a.hasCustomName() || a.isLeashed() || a.isPersistent() || w.getClosestPlayer(a, 16) != null;
     }
 
     static void baby(ServerWorld w, AnimalEntity a) {

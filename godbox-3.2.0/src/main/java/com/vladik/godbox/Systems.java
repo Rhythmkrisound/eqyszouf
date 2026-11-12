@@ -139,7 +139,7 @@ public final class Systems {
                 Economy::clear, Vassals::clear, Unrest::clear, Heroes::clear, Highways::clear, Storage::clear,
                 Decor::clear, Prayers::clear, Possess::clear, Achievements::clear, Ecosystem::clear, Herds::clear,
                 Tectonics::clear, Banners::clear, Hand::clear, Dynasty::clear, Repair::clear, Perf::clear,
-                Tasks::clear, Life::clear, Diplomacy::clear, Ores::clear, Conquest::clear,
+                Tasks::clear, Meteors::clear, Life::clear, Diplomacy::clear, Ores::clear, Conquest::clear,
                 Ages::clear, Faith::clear, Events::clear, Chronicle::clear, Sleep::clear,
                 GodManager::clear, Undo::clear, Kingdoms::clear, Bosses::clear, BossModels::clear);
     }

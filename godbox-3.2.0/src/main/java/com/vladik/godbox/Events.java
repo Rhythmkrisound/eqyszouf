@@ -209,6 +209,7 @@ public final class Events {
             if (!k.alive || k.world == null || k.capital == null) continue;
             if (r.nextInt(Math.max(1, Config.i("events.chance", 4))) == 0) fire(s, k, pick(k, r));
         }
+        Meteors.natural(Kingdoms.K.values(), Math.max(200, Config.i("events.period", 1800)));
     }
 
     public static void force(ServerPlayerEntity god, ServerWorld w, BlockPos pos) {

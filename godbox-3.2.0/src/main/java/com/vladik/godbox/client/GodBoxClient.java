@@ -22,6 +22,7 @@ public class GodBoxClient implements ClientModInitializer {
         Favorites.load();
         GodParticlesClient.init();
         Art.init();
+        SeasonClient.init();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (TOGGLE.wasPressed()) {
