@@ -534,6 +534,18 @@ for (const b of document.querySelectorAll(".render-controls .segmented button"))
   });
 }
 for (const b of $("lang").children) b.addEventListener("click", () => setLanguage(b.dataset.lang));
+$("upload-button").addEventListener("click", () => $("upload").click());
+$("upload").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  setStatus("status.uploading", "busy");
+  try {
+    selectTrack(await api(`/api/upload?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file }));
+  } catch (err) {
+    setError(err.message);
+  }
+});
 bindPlayer();
 applyLanguage();
 api("/api/config").then(buildSettings).catch((err) => setError(err.message));

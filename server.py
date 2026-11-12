@@ -3,9 +3,12 @@
     uvicorn server:app --port 3000
 """
 import argparse
+import asyncio
 import hashlib
 import json
 import os
+import subprocess
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -13,7 +16,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 import yt_dlp
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pedalboard.io import AudioFile
@@ -30,6 +33,8 @@ for d in (TRACKS, RENDERS):
 
 MAX_DURATION = 15 * 60  # seconds; the chain holds the whole track in memory
 MAX_CACHED_FILES = 30
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+UPLOAD_PREFIX = "upload:"
 PREVIEW_LENGTH = 45.0
 PREVIEW_OFFSET = 30.0
 WAVEFORM_POINTS = 400
@@ -206,7 +211,11 @@ def waveform(audio: np.ndarray) -> list[float]:
 
 def render(job: dict, url: str, settings: dict, preview: bool):
     try:
-        src = fetch_track(url, job)
+        if url.startswith(UPLOAD_PREFIX):
+            src = TRACKS / f"{url.removeprefix(UPLOAD_PREFIX)}.mp3"
+            os.utime(src)
+        else:
+            src = fetch_track(url, job)
         job["status"] = "processing"
         with AudioFile(str(src)) as f:
             sr = int(f.samplerate)
@@ -242,6 +251,60 @@ def render(job: dict, url: str, settings: dict, preview: bool):
         job.update(status="error", error=clean_error(exc))
 
 
+def transcode_upload(tmp: Path, key: str) -> float:
+    """Convert an uploaded file to the cached MP3 format; returns its duration."""
+    dst = TRACKS / f"{key}.mp3"
+    if not dst.exists():
+        part = TRACKS / f"{key}.part.mp3"
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(tmp), "-vn", "-map", "0:a:0",
+               "-c:a", "libmp3lame", "-b:a", "320k", str(part)]
+        if subprocess.run(cmd, capture_output=True).returncode != 0:
+            part.unlink(missing_ok=True)
+            raise HTTPException(400, "File is not a supported audio file")
+        part.replace(dst)
+    with AudioFile(str(dst)) as f:
+        duration = f.frames / f.samplerate
+    if duration > MAX_DURATION:
+        dst.unlink(missing_ok=True)
+        raise HTTPException(400, f"Track is longer than {MAX_DURATION // 60} minutes")
+    os.utime(dst)
+    prune(TRACKS)
+    return duration
+
+
+@app.post("/api/upload")
+async def upload(request: Request, name: str = Query("track", max_length=300)):
+    """Accept a local audio file (raw request body) as the track to remix."""
+    too_large = HTTPException(413, f"File is too large (max {MAX_UPLOAD_BYTES // 2**20} MB)")
+    if int(request.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+        raise too_large
+    digest = hashlib.sha1()
+    size = 0
+    with tempfile.NamedTemporaryFile(dir=TRACKS, suffix=".upload", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        try:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise too_large
+                digest.update(chunk)
+                tmp.write(chunk)
+            tmp.flush()
+            key = digest.hexdigest()[:16]
+            duration = await asyncio.to_thread(transcode_upload, tmp_path, key)
+        finally:
+            tmp.close()
+            tmp_path.unlink(missing_ok=True)
+    return {
+        "id": key,
+        "title": Path(name).stem[:120] or "Track",
+        "artist": "",
+        "duration": duration,
+        "url": f"{UPLOAD_PREFIX}{key}",
+        "artwork": None,
+    }
+
+
 class RemixRequest(BaseModel):
     url: str
     settings: dict[str, float] = {}
@@ -251,7 +314,13 @@ class RemixRequest(BaseModel):
 
 @app.post("/api/remix")
 def start_remix(req: RemixRequest):
-    url = soundcloud_url(req.url)
+    if req.url.startswith(UPLOAD_PREFIX):
+        key = req.url.removeprefix(UPLOAD_PREFIX)
+        if not key.isalnum() or not (TRACKS / f"{key}.mp3").exists():
+            raise HTTPException(404, "Uploaded file expired; upload it again")
+        url = req.url
+    else:
+        url = soundcloud_url(req.url)
     settings = {}
     for key, (lo, hi) in RANGES.items():
         value = float(req.settings.get(key, DEFAULTS[key]))
