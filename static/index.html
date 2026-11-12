@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remix Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <div>
+        <h1>Remix Studio</h1>
+        <p data-i18n="tagline">Slowed · pitched · reverb · bass</p>
+      </div>
+    </div>
+    <form id="search-form" class="search" role="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="search-input" type="search" autocomplete="off"
+             data-i18n-attr="aria-label:search.aria,placeholder:search.placeholder">
+      <button type="submit" data-i18n="search.button">Search</button>
+    </form>
+    <div class="segmented lang" id="lang" role="radiogroup" data-i18n-attr="aria-label:lang.aria">
+      <button type="button" role="radio" data-lang="en" aria-checked="true" lang="en">EN</button>
+      <button type="button" role="radio" data-lang="ru" aria-checked="false" lang="ru">RU</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel results-panel" data-i18n-attr="aria-label:tracks.aria">
+      <div class="results-head">
+        <h2 data-i18n="tracks.title">Tracks</h2>
+        <button type="button" class="chip" id="upload-button" data-i18n="upload.button">Upload file</button>
+        <input type="file" id="upload" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus" hidden>
+      </div>
+      <div id="results" class="results"></div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel now" id="now">
+        <div class="art" id="now-art"></div>
+        <div class="now-text">
+          <span class="eyebrow" data-i18n="now.eyebrow">Selected track</span>
+          <h2 id="now-title"></h2>
+          <p id="now-artist"></p>
+        </div>
+        <div class="render-controls">
+          <div class="segmented" role="radiogroup" data-i18n-attr="aria-label:mode.aria">
+            <button type="button" role="radio" data-preview="1" aria-checked="true" id="mode-preview"></button>
+            <button type="button" role="radio" data-preview="0" aria-checked="false" data-i18n="mode.full">Full track</button>
+          </div>
+          <button id="render" class="primary" disabled data-i18n="render">Render remix</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="panel settings">
+        <div class="settings-head">
+          <h2 data-i18n="settings.title">Remix settings</h2>
+          <div class="presets" id="presets" data-i18n-attr="aria-label:presets.aria"></div>
+          <label class="toggle"><input type="checkbox" id="advanced"><span></span><b data-i18n="advanced">Advanced</b></label>
+        </div>
+        <div class="groups" id="groups"></div>
+        <div class="settings-foot">
+          <label><span data-i18n="bitrate">MP3 bitrate</span>
+            <select id="bitrate"></select>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="player" id="player" data-i18n-attr="aria-label:player.aria">
+    <button id="play" class="play" disabled>
+      <svg viewBox="0 0 24 24" class="icon-play"><path d="M8 5v14l11-7z"/></svg>
+      <svg viewBox="0 0 24 24" class="icon-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+    </button>
+    <div class="player-meta">
+      <strong id="player-title"></strong>
+      <span id="player-sub"></span>
+    </div>
+    <span class="time" id="time-current">0:00</span>
+    <canvas id="wave" class="wave" role="slider" tabindex="0" data-i18n-attr="aria-label:player.seek"
+            aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas>
+    <span class="time" id="time-total">0:00</span>
+    <div class="segmented ab" role="radiogroup" data-i18n-attr="aria-label:ab.aria">
+      <button type="button" role="radio" data-source="remix" aria-checked="true" disabled data-i18n="ab.remix">Remix</button>
+      <button type="button" role="radio" data-source="original" aria-checked="false" disabled data-i18n="ab.original">Original</button>
+    </div>
+    <a id="download" class="ghost disabled" aria-disabled="true" data-i18n-attr="title:download.title">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg>
+      <span data-i18n="download">Download</span>
+    </a>
+  </footer>
+
+  <audio id="audio-remix" preload="auto"></audio>
+  <audio id="audio-original" preload="none"></audio>
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
