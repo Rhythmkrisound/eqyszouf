@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remix Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <div>
+        <h1>Remix Studio</h1>
+        <p>Slowed · pitched · reverb · bass</p>
+      </div>
+    </div>
+    <form id="search-form" class="search" role="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="search-input" type="search" autocomplete="off" aria-label="Search SoundCloud"
+             placeholder="Search SoundCloud or paste a track link…">
+      <button type="submit">Search</button>
+    </form>
+  </header>
+
+  <main class="layout">
+    <section class="panel results-panel" aria-label="SoundCloud results">
+      <h2>Tracks</h2>
+      <div id="results" class="results">
+        <p class="hint">Search for a song or paste a SoundCloud link to get started.</p>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel now" id="now">
+        <div class="art" id="now-art"></div>
+        <div class="now-text">
+          <span class="eyebrow">Selected track</span>
+          <h2 id="now-title">No track selected</h2>
+          <p id="now-artist">Pick a track from the list</p>
+        </div>
+        <div class="render-controls">
+          <div class="segmented" role="radiogroup" aria-label="Render length">
+            <button type="button" role="radio" data-preview="1" aria-checked="true" id="mode-preview">Preview</button>
+            <button type="button" role="radio" data-preview="0" aria-checked="false">Full track</button>
+          </div>
+          <button id="render" class="primary" disabled>Render remix</button>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="panel settings">
+        <div class="settings-head">
+          <h2>Remix settings</h2>
+          <div class="presets" id="presets" aria-label="Presets"></div>
+          <label class="toggle"><input type="checkbox" id="advanced"><span></span>Advanced</label>
+        </div>
+        <div class="groups" id="groups"></div>
+        <div class="settings-foot">
+          <label>MP3 bitrate
+            <select id="bitrate"></select>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="player" id="player" aria-label="Player">
+    <button id="play" class="play" disabled aria-label="Play">
+      <svg viewBox="0 0 24 24" class="icon-play"><path d="M8 5v14l11-7z"/></svg>
+      <svg viewBox="0 0 24 24" class="icon-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+    </button>
+    <div class="player-meta">
+      <strong id="player-title">Nothing rendered yet</strong>
+      <span id="player-sub">Render a remix to listen here</span>
+    </div>
+    <span class="time" id="time-current">0:00</span>
+    <canvas id="wave" class="wave" role="slider" tabindex="0" aria-label="Seek"
+            aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas>
+    <span class="time" id="time-total">0:00</span>
+    <div class="segmented ab" role="radiogroup" aria-label="Compare">
+      <button type="button" role="radio" data-source="remix" aria-checked="true" disabled>Remix</button>
+      <button type="button" role="radio" data-source="original" aria-checked="false" disabled>Original</button>
+    </div>
+    <a id="download" class="ghost disabled" aria-disabled="true" title="Download MP3">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg>
+      <span>Download</span>
+    </a>
+  </footer>
+
+  <audio id="audio-remix" preload="auto"></audio>
+  <audio id="audio-original" preload="none"></audio>
+  <script src="app.js"></script>
+</body>
+</html>
