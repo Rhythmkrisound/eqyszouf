@@ -3,7 +3,8 @@
   "minVersion": "0.8",
   "package": "com.vladik.godbox.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["WorldMixin", "DisplayEntityAccessor", "VillagerMixin", "ServerWorldMixin"],
+  "mixins": ["WorldMixin", "DisplayEntityAccessor", "VillagerMixin", "ServerWorldMixin", "CropSeasonMixin"],
+  "client": ["client.BiomeSeasonMixin", "client.FoliageSeasonMixin"],
   "injectors": {
     "defaultRequire": 1
   }

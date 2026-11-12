@@ -1,5 +1,8 @@
 package com.vladik.godbox;
 
+import net.minecraft.network.packet.s2c.play.SubtitleS2CPacket;
+import net.minecraft.network.packet.s2c.play.TitleFadeS2CPacket;
+import net.minecraft.network.packet.s2c.play.TitleS2CPacket;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -21,7 +24,7 @@ public final class Seasons {
     private static final String[] ICONS = {"🌱", "☀", "🍂", "❄"};
     private static final String[] HINTS = {
         "Наступила весна — посевы растут быстрее, в семьях прибавление",
-        "Наступило лето — поля дают полный урожай, но выше риск засух и пожаров",
+        "Наступило лето — поля дают полный урожай, но выше риск засух",
         "Наступила осень — богатый урожай, караваны ходят чаще",
         "Наступила зима — поля почти не родят, еды уходит больше, армии неохотно идут в поход"
     };
@@ -57,6 +60,7 @@ public final class Seasons {
         year = 1;
         t = 0;
         TEMP.clear();
+        SeasonWorld.reset();
         DRY.clear();
     }
 
@@ -112,10 +116,13 @@ public final class Seasons {
         return 1.0;
     }
 
+    /** Замедлять и ускорять рост любых посевов в мире (seasons.crops). */
+    public static boolean cropsOn() { return on && Config.b("seasons.crops", true); }
+
     /** Множитель скорости роста посевов. */
     public static double growth() {
         if (!on) return 1.0;
-        return season == SPRING ? 1.5 : season == WINTER ? 0.4 : 1.0;
+        return season == SPRING ? 2.0 : season == SUMMER ? 1.2 : season == AUTUMN ? 0.8 : 0.05;
     }
 
     /** Расход еды с учётом зимы. */
@@ -155,7 +162,10 @@ public final class Seasons {
 
     // ---------------- тик ----------------
     public static void tick(MinecraftServer s) {
-        if (!on || s.getTickManager().isFrozen()) return;
+        SeasonNet.tick(s);
+        if (s.getTickManager().isFrozen()) return;
+        SeasonWorld.tick(s);
+        if (!on) return;
         t++;
         if (t % 200 == 1) climate();
         if (t % 40 == 0) snow();
@@ -193,16 +203,59 @@ public final class Seasons {
     static void next(MinecraftServer s) {
         season = (season + 1) % 4;
         time = 0;
-        if (season == SPRING) {
-            year++;
-            Chronicle.log("\u00a7eНаступил " + year + "-й год: зима позади, пришла весна");
-        }
+        if (season == SPRING) year++;
+        String line = switch (season) {
+            case SPRING -> "Наступил " + year + "-й год: зима позади, пришла весна";
+            case SUMMER -> "Пришло лето: поля зеленеют, дни становятся ясными";
+            case AUTUMN -> "Пришла осень: пора урожая";
+            default -> null;
+        };
+        if (line != null) Chronicle.log(null, Chronicle.Type.SCIENCE, false, null, line);
+        SeasonWorld.onSeason(s, season);
         if (s == null) return;
         Text msg = Text.literal(ICONS[season] + " " + HINTS[season] + " (год " + year + ")").formatted(COLORS[season]);
+        Text title = Text.literal(NAMES[season]).formatted(COLORS[season]);
+        Text sub = Text.literal("год " + year).formatted(Formatting.GRAY);
         for (ServerPlayerEntity p : s.getPlayerManager().getPlayerList()) {
-            if (GodManager.isGod(p)) p.sendMessage(msg, false);
+            if (GodManager.isGod(p)) {
+                p.sendMessage(msg, false);
+                p.networkHandler.sendPacket(new TitleFadeS2CPacket(10, 40, 20));
+                p.networkHandler.sendPacket(new SubtitleS2CPacket(sub));
+                p.networkHandler.sendPacket(new TitleS2CPacket(title));
+            } else {
+                p.sendMessage(title.copy().append(Text.literal(", год " + year).formatted(Formatting.GRAY)), true);
+            }
         }
+        SeasonNet.sendAll(s);
     }
+
+    /** Что сезон меняет сейчас — для панели бога. */
+    static String effects() {
+        if (!on) return "";
+        StringBuilder b = new StringBuilder();
+        b.append("урожай ").append(pct(food(null))).append(", рост посевов ").append(pct(growth()));
+        b.append(switch (season) {
+            case SPRING -> ", больше детей";
+            case AUTUMN -> ", караваны чаще";
+            case WINTER -> ", еды уходит больше";
+            default -> ", риск засух";
+        });
+        return b.toString();
+    }
+
+    private static String pct(double m) {
+        long v = Math.round((m - 1.0) * 100);
+        return v == 0 ? "норма" : (v > 0 ? "+" : "\u2212") + Math.abs(v) + "%";
+    }
+
+    /** Знаменатель шанса размножения диких животных за проход (меньше — быстрее). */
+    public static int breedDiv() {
+        if (!on) return 10;
+        return season == SPRING ? 5 : season == SUMMER ? 8 : season == AUTUMN ? 12 : 40;
+    }
+
+    /** Предел числа зверей одного вида в области: зимой стада редеют. */
+    public static int herdCap() { return on && season == WINTER ? 9 : 14; }
 
     /** Сила «Сменить сезон». */
     public static void power(ServerPlayerEntity god) {

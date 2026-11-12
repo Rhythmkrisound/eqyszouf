@@ -1131,6 +1131,30 @@
     "custom_model_data": 4201
    },
    "model": "godbox:item/m/catapult/arm"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4300
+   },
+   "model": "godbox:item/m/meteor/rock"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4301
+   },
+   "model": "godbox:item/m/meteor/glow"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4400
+   },
+   "model": "godbox:item/m/meteor_b/rock"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4401
+   },
+   "model": "godbox:item/m/meteor_b/glow"
   }
  ]
 }
