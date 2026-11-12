@@ -20,6 +20,7 @@ public class GodBoxClient implements ClientModInitializer {
                 "key.godbox.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.godbox"));
         GodKeys.init();
         Favorites.load();
+        GodParticlesClient.init();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (TOGGLE.wasPressed()) {
