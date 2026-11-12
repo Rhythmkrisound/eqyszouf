@@ -37,10 +37,19 @@ public final class Repair {
 
     private Repair() {}
 
+    /** Следы времён года: снег-слои, трава, цветы, грибы, тыквы. */
+    static boolean seasonal(BlockState s) {
+        Block b = s.getBlock();
+        return s.isOf(Blocks.SNOW) || s.isOf(Blocks.SHORT_GRASS) || s.isOf(Blocks.TALL_GRASS) || s.isOf(Blocks.FERN)
+                || b instanceof net.minecraft.block.FlowerBlock || b instanceof net.minecraft.block.TallFlowerBlock
+                || s.isOf(Blocks.BROWN_MUSHROOM) || s.isOf(Blocks.RED_MUSHROOM) || s.isOf(Blocks.PUMPKIN)
+                || s.isOf(Blocks.CARVED_PUMPKIN);
+    }
+
     /** Блоки, которые не восстанавливаем (двусоставные, с данными, посевы, жидкости). */
     static boolean skip(BlockState s) {
         Block b = s.getBlock();
-        return b instanceof BedBlock || b instanceof DoorBlock || b instanceof TallPlantBlock || b instanceof CropBlock
+        return seasonal(s) || b instanceof BedBlock || b instanceof DoorBlock || b instanceof TallPlantBlock || b instanceof CropBlock
                 || s.hasBlockEntity() || !s.getFluidState().isEmpty() || s.isOf(Blocks.FARMLAND) || b instanceof AbstractFireBlock;
     }
 
@@ -96,7 +105,7 @@ public final class Repair {
     }
 
     static boolean damaged(BlockState want, BlockState cur) {
-        if (cur.getBlock() == want.getBlock()) return false;
+        if (cur.getBlock() == want.getBlock() || seasonal(cur)) return false;
         if (want.isAir()) return !cur.isAir() && debris(cur);
         return debris(cur);
     }

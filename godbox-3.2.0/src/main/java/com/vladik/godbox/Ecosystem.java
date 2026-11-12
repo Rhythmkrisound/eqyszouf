@@ -114,8 +114,12 @@ public final class Ecosystem {
                 if (l != null && l != a && a.squaredDistanceTo(l) > 100 && a.squaredDistanceTo(l) < 48 * 48 && a.getTarget() == null)
                     a.getNavigation().startMovingTo(l, 1.0);
             }
-            if (n < 14 && !a.isBaby() && a.getBreedingAge() == 0 && r.nextInt(10) == 0
+            if (n < Seasons.herdCap() && !a.isBaby() && a.getBreedingAge() == 0 && r.nextInt(Seasons.breedDiv()) == 0
                     && w.getBlockState(a.getBlockPos().down()).isOf(Blocks.GRASS_BLOCK)) baby(w, a);
+            // зимой дикие стада редеют от бескормицы
+            else if (Seasons.on && Seasons.index() == Seasons.WINTER && n > Seasons.herdCap() && !herd(a) && r.nextInt(6) == 0) {
+                a.damage(w.getDamageSources().starve(), 2f);
+            }
         }
         if (all.size() > 70) {
             for (int i = 0; i < 4; i++) {
