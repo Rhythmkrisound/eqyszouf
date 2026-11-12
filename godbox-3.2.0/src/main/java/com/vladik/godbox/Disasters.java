@@ -11,6 +11,7 @@ import net.minecraft.particle.BlockStateParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.registry.tag.EntityTypeTags;
+import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.math.BlockPos;
@@ -89,48 +90,153 @@ public final class Disasters {
 
     // ===================== МЕТЕОРИТ =====================
     public static final class Meteor implements Tasks.Task {
-        private static final int DURATION = 30;
         private final ServerWorld w;
-        private final BlockPos target;
-        private final double sx, sy, sz;
+        private final int size;
+        private final boolean gentle;
+        private final boolean burn;
+        private final boolean water;
+        private final Vec3d from, to, end;
+        private final BlockPos ground;
+        private final int dur;
+        private Meteors.Body body;
+        private boolean noModel;
         private int t = 0;
 
         public Meteor(ServerWorld w, BlockPos target) {
+            this(w, target, Meteors.BIG, w.getRandom().nextDouble() * Math.PI * 2, false);
+        }
+
+        /** gentle: без пожаров, для природных потоков; мелкие метеориты тогда всегда сгорают в воздухе. */
+        public Meteor(ServerWorld w, BlockPos target, int size, double heading, boolean gentle) {
             this.w = w;
-            this.target = target;
-            double a = w.getRandom().nextDouble() * Math.PI * 2;
-            this.sx = target.getX() + 0.5 + Math.cos(a) * 30;
-            this.sz = target.getZ() + 0.5 + Math.sin(a) * 30;
-            this.sy = target.getY() + 80;
+            this.size = size;
+            this.gentle = gentle;
+            Random r = w.getRandom();
+            double tilt = Math.toRadians(20 + r.nextDouble() * 15);
+            Vec3d aim = new Vec3d(target.getX() + 0.5, target.getY() + 1.0, target.getZ() + 0.5);
+            double h = MathHelper.clamp(w.getTopY() + 48 - aim.y, 45, 110);
+            double off = h * Math.tan(tilt);
+            this.from = aim.add(Math.cos(heading) * off, h, Math.sin(heading) * off);
+
+            // первый твёрдый блок на пути (только в загруженных чанках: чанки не подгружаем)
+            Vec3d d = aim.subtract(from);
+            int n = (int) Math.ceil(d.length() / 0.75);
+            Vec3d prev = from, hitAt = aim;
+            BlockPos hit = target;
+            for (int i = 1; i < n; i++) {
+                Vec3d p = from.add(d.multiply((double) i / n));
+                BlockPos bp = BlockPos.ofFloored(p);
+                if (w.isOutOfHeightLimit(bp) || !w.isChunkLoaded(bp.getX() >> 4, bp.getZ() >> 4)) {
+                    prev = p;
+                    continue;
+                }
+                BlockState s = w.getBlockState(bp);
+                if (!s.getCollisionShape(w, bp).isEmpty() || !s.getFluidState().isEmpty()) {
+                    hit = bp;
+                    hitAt = prev;
+                    break;
+                }
+                prev = p;
+            }
+            this.ground = hit;
+            this.to = hitAt;
+            this.water = w.isChunkLoaded(hit.getX() >> 4, hit.getZ() >> 4) && w.getFluidState(hit).isIn(FluidTags.WATER);
+            this.burn = size == Meteors.SMALL && (gentle || r.nextInt(100) < 40);
+            this.end = burn ? from.lerp(to, 0.84 + r.nextDouble() * 0.08) : to;
+            int base = size == Meteors.BIG ? 56 : size == Meteors.MEDIUM ? 46 : 34 + r.nextInt(8);
+            this.dur = burn ? (int) (base * 0.88) : base;
+        }
+
+        private Vec3d at(int tick) {
+            double k = Math.min(1.0, (double) tick / dur);
+            return from.lerp(end, 0.6 * k + 0.4 * k * k);
         }
 
         @Override
         public boolean tick() {
-            double k = (double) t / DURATION;
-            double x = MathHelper.lerp(k, sx, target.getX() + 0.5);
-            double y = MathHelper.lerp(k, sy, target.getY() + 1.0);
-            double z = MathHelper.lerp(k, sz, target.getZ() + 0.5);
-            if (t == 0) Fx.sound(w, target.getX(), target.getY() + 20, target.getZ(), SoundEvents.ENTITY_BLAZE_SHOOT, 6f, 0.4f);
-            Fx.particles(w, ParticleTypes.FLAME, x, y, z, 30, 0.7, 0.7, 0.7, 0.05);
-            Fx.particles(w, ParticleTypes.LARGE_SMOKE, x, y, z, 15, 0.8, 0.8, 0.8, 0.02);
-            Fx.particles(w, ParticleTypes.LAVA, x, y, z, 4, 0.5, 0.5, 0.5, 0);
-            if (t >= DURATION) {
-                double cx = target.getX() + 0.5, cy = target.getY() + 1, cz = target.getZ() + 0.5;
-                w.createExplosion(null, cx, cy, cz, 7f, true, World.ExplosionSourceType.TNT);
-                Fx.particles(w, ParticleTypes.EXPLOSION_EMITTER, cx, cy, cz, 6, 3, 2, 3, 0);
-                Random r = w.getRandom();
-                for (BlockPos p : Fx.brush(w, target, 6)) {
-                    BlockPos g = p.down();
-                    if (r.nextFloat() < 0.45f && Fx.breakable(w, g, w.getBlockState(g), 50f)) {
-                        w.setBlockState(g, r.nextFloat() < 0.7f ? Blocks.MAGMA_BLOCK.getDefaultState() : Blocks.OBSIDIAN.getDefaultState());
-                    } else if (r.nextFloat() < 0.2f) {
-                        Fx.fire(w, p);
-                    }
-                }
+            Vec3d p = at(t);
+            boolean seen = w.isChunkLoaded(MathHelper.floor(p.x) >> 4, MathHelper.floor(p.z) >> 4);
+            if (t >= dur) {
+                if (body != null) body.discard();
+                body = null;
+                finish();
                 return true;
+            }
+            if (seen) {
+                if (body == null && !noModel) {
+                    body = Meteors.Body.create(w, p.x, p.y, p.z, size, w.getRandom());
+                    noModel = body == null;
+                }
+                if (body != null) body.move(p.x, p.y, p.z);
+                trail(p);
+                if (t == 0) {
+                    Fx.sound(w, p.x, p.y, p.z, SoundEvents.ENTITY_BLAZE_SHOOT, size == Meteors.BIG ? 6f : 3f, 0.4f);
+                    Fx.sound(w, p.x, p.y, p.z, SoundEvents.ENTITY_FIREWORK_ROCKET_LAUNCH, 4f, 0.5f);
+                } else if (t == dur - 14 && size > Meteors.SMALL) {
+                    Fx.sound(w, p.x, p.y, p.z, SoundEvents.ENTITY_FIREWORK_ROCKET_LAUNCH, 5f, 0.35f);
+                }
+            } else if (body != null) {
+                body.discard();
+                body = null;
             }
             t++;
             return false;
+        }
+
+        private void trail(Vec3d p) {
+            Vec3d back = from.subtract(end).normalize();
+            boolean fallback = body == null;
+            int k = size == Meteors.BIG ? 3 : size == Meteors.MEDIUM ? 2 : 1;
+            double sz = 0.3 + 0.25 * k;
+            for (int i = 0; i < 2; i++) {
+                Vec3d q = p.add(back.multiply(1.0 + i * 1.6 * k));
+                Meteors.spray(w, ParticleTypes.FLAME, q.x, q.y, q.z, fallback ? 12 * k : 3 * k, sz, 0.04);
+                Meteors.spray(w, ParticleTypes.LARGE_SMOKE, q.x, q.y, q.z, fallback ? 6 * k : 2 * k, sz + 0.1, 0.02);
+            }
+            if (fallback || t % 2 == 0) Meteors.spray(w, ParticleTypes.LAVA, p.x, p.y, p.z, k, 0.4, 0);
+            if (size > Meteors.SMALL || t % 2 == 0) {
+                Random r = w.getRandom();
+                Meteors.ember(w, p.x + back.x * 1.5, p.y + back.y * 1.5, p.z + back.z * 1.5,
+                        back.x * 0.15 + r.nextGaussian() * 0.06, back.y * 0.15 + r.nextGaussian() * 0.06, back.z * 0.15 + r.nextGaussian() * 0.06);
+            }
+        }
+
+        private void finish() {
+            if (burn) {
+                Meteors.spray(w, ParticleTypes.FLAME, end.x, end.y, end.z, 30, 0.8, 0.12);
+                Meteors.spray(w, ParticleTypes.LARGE_SMOKE, end.x, end.y, end.z, 14, 0.9, 0.05);
+                Meteors.ember(w, end.x, end.y, end.z, 0, 0.1, 0);
+                Fx.sound(w, end.x, end.y, end.z, SoundEvents.ENTITY_FIREWORK_ROCKET_BLAST_FAR, 4f, 0.6f);
+                return;
+            }
+            if (!w.isChunkLoaded(ground.getX() >> 4, ground.getZ() >> 4)) return;
+            double cx = to.x, cy = to.y, cz = to.z;
+            float power = size == Meteors.BIG ? 7f : size == Meteors.MEDIUM ? 3.5f : 1.6f;
+            boolean fire = !gentle && !water && size > Meteors.SMALL;
+            w.createExplosion(null, cx, cy, cz, power, fire, World.ExplosionSourceType.TNT);
+            if (size == Meteors.BIG) Fx.particles(w, ParticleTypes.EXPLOSION_EMITTER, cx, cy, cz, 6, 3, 2, 3, 0);
+            if (water) {
+                Meteors.spray(w, ParticleTypes.CLOUD, cx, cy + 1, cz, 40 + size * 30, 1.5, 0.12);
+                Meteors.spray(w, ParticleTypes.POOF, cx, cy + 1, cz, 20 + size * 20, 1.0, 0.1);
+                Fx.sound(w, cx, cy, cz, SoundEvents.BLOCK_FIRE_EXTINGUISH, 4f, 0.6f);
+            } else {
+                int rad = size == Meteors.BIG ? 6 : size == Meteors.MEDIUM ? 3 : 0;
+                Random r = w.getRandom();
+                for (int dx = -rad; dx <= rad && rad > 0; dx++) {
+                    for (int dz = -rad; dz <= rad; dz++) {
+                        int x = ground.getX() + dx, z = ground.getZ() + dz;
+                        if (!Fx.inBrush(dx, dz, rad) || !w.isChunkLoaded(x >> 4, z >> 4)) continue;
+                        BlockPos p = Fx.surface(w, x, z);
+                        BlockPos g = p.down();
+                        if (r.nextFloat() < 0.45f && Fx.breakable(w, g, w.getBlockState(g), 50f)) {
+                            w.setBlockState(g, r.nextFloat() < 0.7f ? Blocks.MAGMA_BLOCK.getDefaultState() : Blocks.OBSIDIAN.getDefaultState());
+                        } else if (!gentle && r.nextFloat() < 0.2f) {
+                            Fx.fire(w, p);
+                        }
+                    }
+                }
+            }
+            Meteors.remnant(w, ground, size, water);
         }
     }
 
