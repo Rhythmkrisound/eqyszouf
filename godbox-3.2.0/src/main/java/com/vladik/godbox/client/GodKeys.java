@@ -7,7 +7,7 @@ import org.lwjgl.glfw.GLFW;
 
 /** v3.0: переназначаемые клавиши режима бога (Настройки → Управление → GodBox). */
 public final class GodKeys {
-    public static KeyBinding MAP, WORLD_MAP, CODEX, STATS, HELP, ERAS;
+    public static KeyBinding MAP, WORLD_MAP, CODEX, STATS, HELP, ERAS, CHRONICLE;
 
     private GodKeys() {}
 
@@ -22,6 +22,7 @@ public final class GodKeys {
         STATS = reg("stats", GLFW.GLFW_KEY_K);
         HELP = reg("help", GLFW.GLFW_KEY_I);
         ERAS = reg("eras", GLFW.GLFW_KEY_J);
+        CHRONICLE = reg("chronicle", GLFW.GLFW_KEY_L);
     }
 
     public static boolean is(KeyBinding k, int key, int scan) {

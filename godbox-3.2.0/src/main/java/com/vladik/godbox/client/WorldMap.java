@@ -31,6 +31,8 @@ final class WorldMap {
     record Zone(int x, int z, int r, int rgb, String name, boolean cap, String kingdom, int era) {}
 
     static final List<Zone> ZONES = new ArrayList<>();
+    static boolean pinsOn = true;
+    private static int[] pinChip;
     static final List<int[]> WARS = new ArrayList<>();
     static final List<int[]> ALLIES = new ArrayList<>();
     static final List<String> LEGEND = new ArrayList<>();
@@ -365,6 +367,45 @@ final class WorldMap {
             }
         }
 
+        // метки важных событий летописи
+        pinChip = null;
+        List<Text> pinTip = null;
+        if (!replay) {
+            if (pinsOn && now - ChronicleScreen.pinsAt > 20000 && net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.canSend(com.vladik.godbox.net.ChroniclePayloads.PinReq.ID)) {
+                ChronicleScreen.pinsAt = now;
+                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(new com.vladik.godbox.net.ChroniclePayloads.PinReq());
+            }
+            String pl = "События: " + (pinsOn ? "вкл" : "выкл");
+            int pcw = tr.getWidth(pl) + 10;
+            pinChip = new int[]{x0 + 6, y0 + 6, pcw, 14};
+            Art.button(ctx, pinChip[0], pinChip[1], pcw, 14, Ui.in(mx, my, pinChip[0], pinChip[1], pcw, 14), pinsOn);
+            ctx.drawCenteredTextWithShadow(tr, pl, pinChip[0] + pcw / 2, pinChip[1] + 3, pinsOn ? Ui.GOLD_LIGHT : Ui.MUTED);
+            if (pinsOn) {
+                double best = 49;
+                for (com.vladik.godbox.net.ChroniclePayloads.Dto e : ChronicleScreen.pins) {
+                    if (!e.hasPos()) continue;
+                    int ex = x0 + (int) ((e.x() - minX) * scale), ey = y0 + (int) ((e.z() - minZ) * scale);
+                    if (ex < x0 + 3 || ey < y0 + 3 || ex >= x0 + s - 3 || ey >= y0 + s - 3) continue;
+                    Kingdoms.K ek = Kingdoms.byId(e.k());
+                    int pc = ek != null ? 0xFF000000 | ek.rgb : 0xFFFFD700;
+                    ctx.fill(ex - 4, ey - 1, ex + 5, ey + 2, 0xFF000000);
+                    ctx.fill(ex - 1, ey - 4, ex + 2, ey + 5, 0xFF000000);
+                    ctx.fill(ex - 3, ey, ex + 4, ey + 1, pc);
+                    ctx.fill(ex, ey - 3, ex + 1, ey + 4, pc);
+                    ctx.fill(ex - 1, ey - 1, ex + 2, ey + 2, 0xFFFFE680);
+                    double dd = (mx - ex) * (mx - ex) + (my - ey) * (my - ey);
+                    if (dd < best) {
+                        best = dd;
+                        List<Text> tl = new ArrayList<>();
+                        tl.add(Text.literal((e.year() > 0 ? "Год " + e.year() + ", " : "") + "день " + e.day()).formatted(Formatting.GOLD));
+                        if (ek != null) tl.add(Text.literal(ek.title).withColor(ek.rgb));
+                        for (net.minecraft.text.StringVisitable sv : tr.getTextHandler().wrapLines(e.text(), 220, net.minecraft.text.Style.EMPTY)) tl.add(Text.literal(sv.getString()));
+                        pinTip = tl;
+                    }
+                }
+            }
+        }
+
         // игрок
         int ppx = x0 + (int) ((mc.player.getX() - minX) * scale), ppy = y0 + (int) ((mc.player.getZ() - minZ) * scale);
         if (ppx >= x0 && ppy >= y0 && ppx < x0 + s && ppy < y0 + s) {
@@ -447,7 +488,9 @@ final class WorldMap {
         // подсказка под курсором
         if (mx >= x0 && my >= y0 && mx < x0 + s && my < y0 + s) {
             int wx = (int) Math.floor(minX + (mx - x0) / scale), wz = (int) Math.floor(minZ + (my - y0) / scale);
-            if (hov != null) {
+            if (pinTip != null) {
+                ctx.drawTooltip(tr, pinTip, mx, my);
+            } else if (hov != null) {
                 ctx.drawTooltip(tr, List.of(
                         Text.literal((hov.cap ? "♛ Столица " : "Город ") + hov.name).formatted(Formatting.GOLD),
                         Text.literal(hov.kingdom).withColor(hov.rgb),
@@ -467,6 +510,11 @@ final class WorldMap {
 
     /** Мировые координаты клика по карте или null. */
     static int[] click(double mx, double my) {
+        if (pinChip != null && !replay && mx >= pinChip[0] && mx < pinChip[0] + pinChip[2] && my >= pinChip[1] && my < pinChip[1] + pinChip[3]) {
+            pinsOn = !pinsOn;
+            ChronicleScreen.pinsAt = 0;
+            return null;
+        }
         if (ls > 0 && my >= barY && my < barY + 14) {
             if (mx >= hbX0 && mx < hbX1) {
                 if (replay) exitReplay(); else enterReplay();
