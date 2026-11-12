@@ -252,16 +252,19 @@ public final class Tech {
         }
     }
 
-    /** Порох: вместо катапульты стреляет пушка — быстрое ядро и сильный взрыв. */
+    /** Порох без своих моделей: ядро летит от солдата (с моделями стреляет SiegeEngines). */
     static boolean cannon(ServerWorld w, Kingdoms.K k, MobEntity m, BlockPos target) {
         if (!has(k, T.GUNPOWDER)) return false;
-        if (Guns.cannon(w, k, m, target)) return true;
         cannonball(w, m, m.getX(), m.getEyeY() + 1, m.getZ(), target, new ItemStack(Items.FIRE_CHARGE));
         return true;
     }
 
     /** Ядро из точки (ox, oy, oz) по навесной траектории в target; item — вид летящего снаряда. */
     static void cannonball(ServerWorld w, MobEntity m, double ox, double oy, double oz, BlockPos target, ItemStack item) {
+        cannonball(w, m, ox, oy, oz, target, item, (float) Config.d("tech.cannon.power", 3.5));
+    }
+
+    static void cannonball(ServerWorld w, MobEntity m, double ox, double oy, double oz, BlockPos target, ItemStack item, float power) {
         double dx = target.getX() + 0.5 - ox, dz = target.getZ() + 0.5 - oz, dy = target.getY() - oy;
         double d = Math.sqrt(dx * dx + dz * dz);
         double n = Math.max(12, d / 2.0);
@@ -273,7 +276,6 @@ public final class Tech {
         Fx.sound(w, ox, oy, oz, SoundEvents.ENTITY_GENERIC_EXPLODE.value(), 4f, 1.4f);
         Fx.particles(w, ParticleTypes.EXPLOSION, ox, oy, oz, 1, 0, 0, 0, 0);
         Fx.particles(w, ParticleTypes.LARGE_SMOKE, ox, oy, oz, 14, 0.4, 0.4, 0.4, 0.04);
-        float power = (float) Config.d("tech.cannon.power", 3.5);
         Vec3d[] last = {sb.getPos()};
         int[] age = {0};
         Tasks.add(() -> {

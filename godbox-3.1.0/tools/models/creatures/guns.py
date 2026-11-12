@@ -64,3 +64,12 @@ ball.box((-4, -3, -3), (4, 3, 3), shot)
 ball.box((-3, -3, -4), (3, 3, 4), shot)
 
 c.item_override("minecraft:crossbow", musket)
+
+# catapult boulder: a rough grey rock (item of the flying stone, ground context like the ball)
+rock = Mat((124, 122, 116), mottle=(86, 84, 80), mottle_amt=0.6, mottle_size=3, bevel=0.3, patterns=[speckle((160, 158, 150), 0.05)])
+boulder = c.part("boulder", pivot=(20, 8, 0), display={
+    "ground": {"translation": [0, 0, 0], "scale": [1.0, 1.0, 1.0]},
+    "gui": {"rotation": [20, 30, 0], "scale": [1.2, 1.2, 1.2]}})
+boulder.box((-3.5, -4.5, -3.5), (3.5, 4.5, 3.5), rock)
+boulder.box((-4.5, -3.5, -3), (4.5, 3.5, 3), rock)
+boulder.box((-3, -3, -4.5), (3, 3, 4.5), rock)

@@ -97,6 +97,15 @@ public final class Civ {
         final Kind kind;
         final int x0, z0, x1, z1, y0;
         boolean done;
+        /** Эпоха, в которой здание реально построено: -2 = ещё не прочитано из сохранения, -1 = неизвестна. */
+        int era = -2;
+        /** Версия чертежа: 1 = постройки до 3.2 (геометрию не менять!), REV = текущая. */
+        int rev = 1;
+        /** Строится «пачкой» (город, замок): не чинить и не перекрашивать. */
+        boolean busy;
+        /** Рисунок дома из TownBuilder: -2 = не определён, -1 = обычное здание, иначе тип*2+фасад на юг. */
+        int plot = -2;
+        long retryAt;
 
         Building(Kind kind, int x0, int z0, int y0) {
             this.kind = kind;
@@ -124,6 +133,10 @@ public final class Civ {
         final List<BlockState> st = new ArrayList<>();
         int i;
         boolean repair;
+        /** Эпоха, по палитре которой составлен чертёж. */
+        int era;
+        /** Позиции вне палитры эпохи (мощение уже подобрано под эпоху). */
+        final java.util.Set<BlockPos> raw = new java.util.HashSet<>();
 
         Project(Building b) { this.b = b; }
 
@@ -168,6 +181,8 @@ public final class Civ {
     }
 
     static final int FIND = 0, GO = 1, WORK = 2, RETURN = 3;
+    /** Текущая версия чертежей зданий (Building.rev). */
+    static final int REV = 2;
 
     private static final Map<Kingdoms.K, City> CITIES = new EnumMap<>(Kingdoms.K.class);
     private static final Map<VillagerEntity, W> WORKERS = new WeakHashMap<>();
@@ -802,6 +817,7 @@ public final class Civ {
         c.project = null;
         Building b = p.b;
         b.done = true;
+        if (!p.repair) b.era = p.era;
         BlockPos cc = b.center();
         if (p.repair) {
             Repair.snapshot(w, b);
@@ -965,7 +981,9 @@ public final class Civ {
                 max = Math.max(max, g.getY());
             }
             if (bad || max - min > 2) continue;
-            return new Building(kind, x0, z0, soil(w, cx, cz).getY());
+            Building nb = new Building(kind, x0, z0, soil(w, cx, cz).getY());
+            nb.rev = REV;
+            return nb;
         }
         return null;
     }
@@ -973,6 +991,7 @@ public final class Civ {
     // ---------------- чертежи ----------------
     static Project blueprint(Kingdoms.K k, Building b, ServerWorld w) {
         Project p = new Project(b);
+        p.era = city(k).era;
         int H = switch (b.kind) {
             case HOUSE -> 9;
             case FARM -> 3;
@@ -981,7 +1000,7 @@ public final class Civ {
             case WELL -> 5;
             case MILL, TEMPLE -> 11;
             case SMITHY, GRANARY -> 7;
-            case MANOR -> 10;
+            case MANOR -> b.rev >= 2 ? 12 : 10;
             case WAREHOUSE -> 8;
             default -> 0;
         };
@@ -1148,7 +1167,9 @@ public final class Civ {
             }
         }
         CivPlus.extras(k, b, w, p, doorX, doorZ);
+        List<BlockState> orig = new ArrayList<>(p.st);
         Eras.apply(k, b.kind, p.st);
+        for (int i = 0; i < p.pos.size(); i++) if (p.raw.contains(p.pos.get(i))) p.st.set(i, orig.get(i));
         Eras.decor(k, b, p);
         return p;
     }

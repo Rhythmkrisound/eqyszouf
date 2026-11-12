@@ -54,6 +54,7 @@ public final class ModelParts {
         c_hats();
         c_guns();
         c_cannon();
+        c_catapult();
     }
 
     private static void c_crab() {
@@ -296,6 +297,7 @@ public final class ModelParts {
         ALL.put("guns", new Creature("guns", 1.0f, false, false, new Part[]{
                 p("musket", 4000, -1, 0.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
                 p("ball", 4001, -1, 14.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
+                p("boulder", 4002, -1, 20.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
         }));
     }
 
@@ -303,6 +305,13 @@ public final class ModelParts {
         ALL.put("cannon", new Creature("cannon", 1.5f, false, false, new Part[]{
                 p("carriage", 4100, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
                 p("barrel", 4101, -1, 0.0f, 9.5f, 1.0f, -10.0f, 0.0f, 0.0f, 1.0f, false, a(STRIKE, 0, -9.0f, 14.0f, 0.0f, ALWAYS, SIN)),
+        }));
+    }
+
+    private static void c_catapult() {
+        ALL.put("catapult", new Creature("catapult", 1.5f, false, false, new Part[]{
+                p("frame", 4200, -1, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, false),
+                p("arm", 4201, -1, 0.0f, 19.0f, 0.0f, -34.0f, 0.0f, 0.0f, 1.0f, false, a(STRIKE, 0, 72.0f, 24.0f, 0.0f, ALWAYS, SIN)),
         }));
     }
 }

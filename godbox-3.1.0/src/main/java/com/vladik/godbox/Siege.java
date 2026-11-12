@@ -85,16 +85,22 @@ public final class Siege {
         Chronicle.say(w.getServer(), k, lvl >= 2 ? "возводит каменные стены с башнями" : "обносит столицу частоколом");
     }
 
+    /** Запасной выстрел без модели: камень летит из головы солдата. */
     static void shoot(ServerWorld w, MobEntity m, BlockPos target) {
-        double dx = target.getX() + 0.5 - m.getX(), dz = target.getZ() + 0.5 - m.getZ(), dy = target.getY() - (m.getEyeY() + 1);
+        lob(w, m, m.getX(), m.getEyeY() + 1, m.getZ(), target, new ItemStack(Items.COBBLESTONE), 2.5f);
+    }
+
+    /** Навесной бросок из точки (ox, oy, oz); экипаж m — владелец снаряда. */
+    static void lob(ServerWorld w, MobEntity m, double ox, double oy, double oz, BlockPos target, ItemStack item, float power) {
+        double dx = target.getX() + 0.5 - ox, dz = target.getZ() + 0.5 - oz, dy = target.getY() - oy;
         double d = Math.sqrt(dx * dx + dz * dz);
         double T = Math.max(20, d / 1.1);
         SnowballEntity sb = new SnowballEntity(w, m);
-        sb.setItem(new ItemStack(Items.COBBLESTONE));
-        sb.setPosition(m.getX(), m.getEyeY() + 1, m.getZ());
+        sb.setItem(item);
+        sb.setPosition(ox, oy, oz);
         sb.setVelocity(dx / T * 1.25, (dy + 0.5 * 0.03 * T * T) / T * 1.15, dz / T * 1.25);
         w.spawnEntity(sb);
-        Fx.sound(w, m.getX(), m.getY(), m.getZ(), SoundEvents.BLOCK_PISTON_EXTEND, 1.5f, 0.5f);
+        Fx.sound(w, ox, oy, oz, SoundEvents.BLOCK_PISTON_EXTEND, 1.5f, 0.5f);
         Vec3d[] last = {sb.getPos()};
         int[] age = {0};
         Tasks.add(() -> {
@@ -105,7 +111,7 @@ public final class Siege {
                 return false;
             }
             if (sb.isAlive()) sb.discard();
-            w.createExplosion(null, last[0].x, last[0].y, last[0].z, 2.5f, World.ExplosionSourceType.TNT);
+            w.createExplosion(null, last[0].x, last[0].y, last[0].z, power, World.ExplosionSourceType.TNT);
             return true;
         });
     }
@@ -124,7 +130,9 @@ public final class Siege {
                     double d2 = m.getBlockPos().getSquaredDistance(tp);
                     if (d2 > 50 * 50 || d2 < 12 * 12) continue;
                     BlockPos g = Fx.surface(w, tp.getX() + w.getRandom().nextInt(9) - 4, tp.getZ() + w.getRandom().nextInt(9) - 4);
-                    if (!Tech.cannon(w, k, m, g)) shoot(w, m, g);
+                    int r = SiegeEngines.request(w, k, m, g, Tech.has(k, Tech.T.GUNPOWDER) ? SiegeEngines.Type.CANNON : SiegeEngines.Type.CATAPULT);
+                    if (r == SiegeEngines.WAIT) break;
+                    if (r == SiegeEngines.NONE && !Tech.cannon(w, k, m, g)) shoot(w, m, g);
                     c.stone -= 1;
                     shots++;
                     break;

@@ -480,6 +480,10 @@ final class CivPlus {
                 for (int[] c : ls) put(p, c[0], y0 + 4, c[1], hanging());
             }
             case MANOR -> {
+                if (b.rev >= 2) {
+                    manor(k, b, p, doorX, doorZ);
+                    break;
+                }
                 BlockState[] sty = houseStyle(b);
                 walls(p, x0, z0, x1, z1, y0, y0 + 2, sty[1], sty[0], glass, y0 + 1, y0 + 1, doorX, doorZ, y0 + 1);
                 rect(p, x0, z0, x1, z1, y0 + 3, st(Blocks.SPRUCE_PLANKS));
@@ -505,6 +509,49 @@ final class CivPlus {
             }
         }
         road(k, b, w, p);
+    }
+
+    /** Большой дом v2: два одинаковых этажа по 3 блока, пояс из балок между ними, окна в одних колонках, люк с лестницей, двускатная крыша. */
+    private static void manor(Kingdoms.K k, Civ.Building b, Civ.Project p, int doorX, int doorZ) {
+        int y0 = b.y0, x0 = b.x0, z0 = b.z0, x1 = b.x1, z1 = b.z1, cx = b.cx(), cz = b.cz();
+        BlockState[] sty = houseStyle(b);
+        BlockState glass = st(Blocks.GLASS);
+        BlockState roof = Eras.style(p.era, Civ.Kind.MANOR, sty[2]);
+        walls(p, x0, z0, x1, z1, y0, y0 + 2, sty[1], sty[0], glass, y0 + 1, y0 + 1, doorX, doorZ, y0 + 1);
+        Direction out = doorX == x1 ? Direction.EAST : doorX == x0 ? Direction.WEST : doorZ == z1 ? Direction.SOUTH : Direction.NORTH;
+        Arch.door(p::add, new BlockPos(doorX, y0, doorZ), out, Arch.woodenDoor(sty[1]));
+        // люк у стены напротив двери
+        boolean doorOnX = doorX == x0 || doorX == x1;
+        int lx = doorOnX ? (doorX == x0 ? x1 - 1 : x0 + 1) : x0 + 2;
+        int lz = doorOnX ? cz : (doorZ == z0 ? z1 - 1 : z0 + 1);
+        Direction face = doorOnX ? (doorX == x0 ? Direction.WEST : Direction.EAST) : (doorZ == z0 ? Direction.NORTH : Direction.SOUTH);
+        floorBand(p, x0, z0, x1, z1, y0 + 3, sty[0], sty[1], lx, lz);
+        walls(p, x0, z0, x1, z1, y0 + 4, y0 + 6, sty[1], sty[0], glass, y0 + 5, y0 + 5, NO, NO, 0);
+        for (int y = y0; y <= y0 + 4; y++)
+            put(p, lx, y, lz, Blocks.LADDER.getDefaultState().with(net.minecraft.block.LadderBlock.FACING, face));
+        floorBand(p, x0, z0, x1, z1, y0 + 7, sty[0], sty[1], NO, NO);
+        Arch.gable(p::add, x0, z0, x1, z1, y0 + 7, roof, sty[1], roof);
+        int top = y0 + 7 + Arch.gableHeight(x0, z0, x1, z1);
+        put(p, cx, top, cz, k.wool.getDefaultState());
+        Arch.chimney(p::add, x1 - 1, z1 - 1, y0 + 8, top, st(Blocks.BRICKS));
+        put(p, x0 + 1, y0, z0 + 1, st(Blocks.CRAFTING_TABLE));
+        put(p, x1 - 1, y0, z0 + 1, st(Blocks.BARREL));
+        put(p, x0 + 1, y0, z1 - 1, st(Blocks.BOOKSHELF));
+        put(p, x1 - 1, y0, z1 - 1, st(Blocks.LOOM));
+        put(p, cx, y0 + 2, cz, hanging());
+        put(p, cx, y0 + 6, cz, hanging());
+        put(p, x0 + 1, y0 + 4, z0 + 1, st(Blocks.BOOKSHELF));
+    }
+
+    /** Перекрытие: балки по периметру (видимый пояс между этажами), доски внутри, люк (hx,hz) оставлен пустым. */
+    private static void floorBand(Civ.Project p, int x0, int z0, int x1, int z1, int y, BlockState log, BlockState plank, int hx, int hz) {
+        for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++) {
+                if (x == hx && z == hz) continue;
+                boolean ex = x == x0 || x == x1, ez = z == z0 || z == z1;
+                BlockState s = ex && ez ? log : ez ? Arch.beam(log, Direction.Axis.X) : ex ? Arch.beam(log, Direction.Axis.Z) : plank;
+                p.add(new BlockPos(x, y, z), s);
+            }
     }
 
     // ---------------- дороги и фонари ----------------
@@ -553,19 +600,23 @@ final class CivPlus {
     }
 
     static void pave(ServerWorld w, Civ.Project p, int x, int z) {
+        if (p.b.done && !w.isChunkLoaded(x >> 4, z >> 4)) return; // перекраска не должна подгружать чанки
         BlockPos g = Civ.ground(w, x, z);
         BlockState below = w.getBlockState(g.down());
         if (below.isOf(Blocks.GRASS_BLOCK) || below.isOf(Blocks.DIRT) || below.isOf(Blocks.COARSE_DIRT)
-            || below.isOf(Blocks.PODZOL) || below.isOf(Blocks.MYCELIUM)) {
+            || below.isOf(Blocks.PODZOL) || below.isOf(Blocks.MYCELIUM) || Decor.isPathBlock(below)) {
             BlockState at = w.getBlockState(g);
             if (!at.isAir() && at.isReplaceable() && at.getFluidState().isEmpty()) p.add(g, Blocks.AIR.getDefaultState());
-            p.add(g.down(), st(Blocks.DIRT_PATH));
+            // мощение по эпохе, как у дорожек от дверей (Decor.pathFor); палитра эпохи его не трогает
+            p.add(g.down(), Decor.pathFor(p.era));
+            p.raw.add(g.down());
         } else if (below.isOf(Blocks.SAND) || below.isOf(Blocks.GRAVEL)) {
             p.add(g.down(), st(Blocks.SMOOTH_SANDSTONE));
         }
     }
 
     static void lamp(ServerWorld w, Civ.Project p, int x, int z) {
+        if (p.b.done && !w.isChunkLoaded(x >> 4, z >> 4)) return;
         if (Civ.inCity(x, z, 0)) return;
         BlockPos g = Civ.ground(w, x, z);
         BlockState at = w.getBlockState(g);

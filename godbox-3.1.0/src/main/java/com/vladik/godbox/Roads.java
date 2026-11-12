@@ -12,7 +12,6 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.random.Random;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +21,7 @@ public final class Roads {
     public static boolean on = true;
     static final Set<String> DONE = new HashSet<>();
     private static int t;
+    private static Set<Block> fam;
 
     private Roads() {}
 
@@ -42,9 +42,33 @@ public final class Roads {
                 || s.isOf(Blocks.COBBLESTONE) || s.isOf(Blocks.STONE) || s.isOf(Blocks.SNOW_BLOCK) || s.isOf(Blocks.COARSE_DIRT);
     }
 
+    /** Естественный грунт, по которому можно мостить: не постройка, не грядка, не руда. */
+    static boolean terrain(BlockState s) {
+        return natural(s) || s.isIn(BlockTags.SAND) || s.isIn(BlockTags.TERRACOTTA) || s.isIn(BlockTags.BASE_STONE_OVERWORLD)
+                || s.isOf(Blocks.SANDSTONE) || s.isOf(Blocks.RED_SANDSTONE) || s.isOf(Blocks.CLAY);
+    }
+
+    /** Любой материал полотна или настила моста любой эпохи (для смены облика). */
+    static boolean fam(BlockState s) {
+        if (fam == null) {
+            Set<Block> f = new HashSet<>();
+            Random r = Random.create(7);
+            for (int era = 0; era <= 11; era++)
+                for (int i = 0; i < 54; i++)
+                    for (int n = 0; n < 4; n++) {
+                        f.add(Highways.road(era, false, i, r).getBlock());
+                        f.add(Highways.road(era, true, i, r).getBlock());
+                        f.add(mat(era, r).getBlock());
+                        f.add(Highways.bridge(era, false).getBlock());
+                        f.add(Highways.bridge(era, true).getBlock());
+                    }
+            fam = f;
+        }
+        return fam.contains(s.getBlock());
+    }
+
     static boolean road(BlockState s) {
-        return s.isOf(Blocks.DIRT_PATH) || s.isOf(Blocks.GRAVEL) || s.isOf(Blocks.COBBLESTONE) || s.isOf(Blocks.MOSSY_COBBLESTONE)
-                || s.isOf(Blocks.STONE_BRICKS) || s.isOf(Blocks.CRACKED_STONE_BRICKS) || s.isOf(Blocks.OAK_PLANKS) || Highways.paved(s);
+        return s.isOf(Blocks.OAK_PLANKS) || fam(s) || Highways.paved(s);
     }
 
     static boolean inBuilding(List<Civ.Building> bs, int x, int z) {
@@ -52,80 +76,20 @@ public final class Roads {
         return false;
     }
 
-    static void build(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b) {
-        Highways.Place j = new Highways.Place(w);
-        int era = Civ.city(k).era;
-        Random r = w.getRandom();
-        List<Civ.Building> bs = new ArrayList<>(Civ.city(k).buildings);
-        int x0 = a.getX(), z0 = a.getZ(), x1 = b.getX(), z1 = b.getZ();
-        int dx = Math.abs(x1 - x0), dz = Math.abs(z1 - z0), sx = x0 < x1 ? 1 : -1, sz = z0 < z1 ? 1 : -1, err = dx - dz;
-        boolean xMajor = dx >= dz;
-        int x = x0, z = z0;
-        BlockState fence = Blocks.OAK_FENCE.getDefaultState();
-        for (int step = 0; step < 500; step++) {
-            boolean nearEnd = Math.max(Math.abs(x - x0), Math.abs(z - z0)) < 8 || Math.max(Math.abs(x - x1), Math.abs(z - z1)) < 8;
-            if (!nearEnd && w.isChunkLoaded(x >> 4, z >> 4)) {
-                for (int o = -1; o <= 1; o++) {
-                    int px = xMajor ? x : x + o, pz = xMajor ? z + o : z;
-                    if (inBuilding(bs, px, pz)) continue;
-                    int y = TownBuilder.ground(w, px, pz);
-                    BlockPos g = new BlockPos(px, y - 1, pz);
-                    BlockState s = w.getBlockState(g);
-                    if (!s.getFluidState().isEmpty()) {
-                        // мост: настил по эпохе, края с перилами снаружи дороги, опоры и фонари
-                        j.put(g, Highways.bridge(era, false));
-                        if (o != 0) {
-                            int qx = xMajor ? x : x + 2 * o, qz = xMajor ? z + 2 * o : z;
-                            if (!inBuilding(bs, qx, qz)) {
-                                BlockPos q = new BlockPos(qx, g.getY(), qz);
-                                BlockState qs = w.getBlockState(q);
-                                if (!qs.getFluidState().isEmpty() || qs.isAir() || qs.isReplaceable()) {
-                                    j.put(q, Highways.bridge(era, true));
-                                    j.put(q.up(), Highways.rail(era));
-                                    if (step % 8 == 0) j.put(q.up(2), (era >= 4 ? Blocks.LANTERN : Blocks.TORCH).getDefaultState());
-                                    if (step % 6 == 0) {
-                                        BlockPos d = q.down();
-                                        for (int n = 0; n < 40 && d.getY() > w.getBottomY(); n++, d = d.down()) {
-                                            BlockState ds = w.getBlockState(d);
-                                            if (!(ds.isAir() || !ds.getFluidState().isEmpty() || ds.isReplaceable())) break;
-                                            j.put(d, Highways.pillar(era));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (natural(s)) {
-                        j.put(g, mat(era, r));
-                        BlockState up = w.getBlockState(g.up());
-                        if (!up.isAir() && up.isReplaceable()) j.put(g.up(), Blocks.AIR.getDefaultState());
-                    }
-                }
-                if (era >= 2 && step % 16 == 8) {
-                    int px = xMajor ? x : x + 2, pz = xMajor ? z + 2 : z;
-                    if (!inBuilding(bs, px, pz) && TownBuilder.dry(w, px, pz)) {
-                        int y = TownBuilder.ground(w, px, pz);
-                        j.put(new BlockPos(px, y, pz), era >= 4 ? Blocks.STONE_BRICK_WALL.getDefaultState() : fence);
-                        j.put(new BlockPos(px, y + 1, pz), (era >= 4 ? Blocks.LANTERN : Blocks.TORCH).getDefaultState());
-                    }
-                }
-            }
-            if (x == x1 && z == z1) break;
-            int e2 = 2 * err;
-            if (e2 > -dz) { err -= dz; x += sx; }
-            if (e2 < dx) { err += dx; z += sz; }
-        }
-        Tasks.add(j);
+    /** Узкая дорога строится общим движком Highways: тот же обход препятствий, профиль, мосты и смена облика по эпохам. */
+    static boolean build(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b) {
+        return Highways.start(w, k, a, b, true);
     }
 
     static boolean tryRoad(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b, int max) {
         if (a.equals(b) || a.getSquaredDistance(b) > (double) max * max || a.getSquaredDistance(b) < 20 * 20) return false;
         String key = key(a, b);
-        if (DONE.contains(key)) return false;
+        if (DONE.contains(key) || Highways.DONE.contains(key) || Highways.active(key)) return false;
         Civ.City c = Civ.city(k);
         if (c.stone < 10) return false;
+        if (!build(w, k, a, b)) return false;
         c.stone -= 10;
         DONE.add(key);
-        build(w, k, a, b);
         Chronicle.say(w.getServer(), k, "прокладывает дорогу");
         return true;
     }
@@ -162,6 +126,7 @@ public final class Roads {
         if (k == null || k.capital == null) return;
         BlockPos target = Fx.surface(w, pos.getX(), pos.getZ());
         DONE.remove(key(k.capital, target));
+        Highways.forget(key(k.capital, target));
         Civ.city(k).stone += 10;
         if (!tryRoad(w, k, k.capital, target, 400)) {
             god.sendMessage(net.minecraft.text.Text.literal("Слишком близко к столице или слишком далеко"), true);

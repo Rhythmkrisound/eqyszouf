@@ -1104,6 +1104,12 @@
   },
   {
    "predicate": {
+    "custom_model_data": 4002
+   },
+   "model": "godbox:item/m/guns/boulder"
+  },
+  {
+   "predicate": {
     "custom_model_data": 4100
    },
    "model": "godbox:item/m/cannon/carriage"
@@ -1113,6 +1119,18 @@
     "custom_model_data": 4101
    },
    "model": "godbox:item/m/cannon/barrel"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4200
+   },
+   "model": "godbox:item/m/catapult/frame"
+  },
+  {
+   "predicate": {
+    "custom_model_data": 4201
+   },
+   "model": "godbox:item/m/catapult/arm"
   }
  ]
 }

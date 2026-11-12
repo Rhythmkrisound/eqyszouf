@@ -84,6 +84,17 @@ public final class Repair {
         SNAPS.put(b, new Snap(pa, ss.toArray(new BlockState[0]), solid));
     }
 
+    /** После перекраски здания переносит новые блоки эпохи в снимок, не трогая сохранённые повреждения. */
+    static void update(Civ.Building b, java.util.Map<BlockPos, BlockState> want) {
+        Snap sn = SNAPS.get(b);
+        if (sn == null) return;
+        for (int i = 0; i < sn.pos.length; i++) {
+            BlockState s = want.get(BlockPos.fromLong(sn.pos[i]));
+            if (s == null || s.isAir() || skip(s) || sn.st[i].isAir() || skip(sn.st[i])) continue;
+            sn.st[i] = s;
+        }
+    }
+
     static boolean damaged(BlockState want, BlockState cur) {
         if (cur.getBlock() == want.getBlock()) return false;
         if (want.isAir()) return !cur.isAir() && debris(cur);
@@ -108,7 +119,9 @@ public final class Repair {
             Civ.Building worst = null;
             List<Integer> worstList = null;
             for (Civ.Building b : new ArrayList<>(c.buildings)) {
-                if (!b.done || b.kind == Civ.Kind.QUARRY) continue;
+                if (!b.done || b.kind == Civ.Kind.QUARRY || b.busy) continue;
+                // пока здание не перекрашено в текущую эпоху, снимок устарел: чинить по нему нельзя
+                if (Eras.stale(b, c)) continue;
                 if (!w.isChunkLoaded(new BlockPos(b.x0, b.y0, b.z0)) || !w.isChunkLoaded(new BlockPos(b.x1, b.y0, b.z1))) continue;
                 Snap sn = SNAPS.get(b);
                 if (sn == null) {

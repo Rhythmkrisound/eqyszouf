@@ -91,6 +91,7 @@ public final class Systems {
         tick("wonders", Wonders::tick, () -> Wonders.on);
         tick("magic", Magic::tick);
         tick("guns", Guns::tick);
+        tick("siegeEngines", SiegeEngines::tick);
         tick("navy", Navy::tick);
         tick("roads", Roads::tick);
         tick("siege", Siege::tick);
@@ -127,7 +128,7 @@ public final class Systems {
         clear(Mortal::clear);
 
         clear(Creatures::clear, Kings::clear, WorldAges::clear, Ships::clear,
-                Colonies::clear, Tech::clear, Wonders::clear, Magic::clear, Guns::clear, Navy::clear, Roads::clear, Siege::clear,
+                Colonies::clear, Tech::clear, Wonders::clear, Magic::clear, Guns::clear, SiegeEngines::clear, Navy::clear, Roads::clear, Siege::clear,
                 Economy::clear, Vassals::clear, Unrest::clear, Heroes::clear, Highways::clear, Storage::clear,
                 Decor::clear, Prayers::clear, Possess::clear, Achievements::clear, Ecosystem::clear, Herds::clear,
                 Tectonics::clear, Banners::clear, Hand::clear, Dynasty::clear, Repair::clear, Perf::clear,

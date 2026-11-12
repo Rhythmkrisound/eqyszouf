@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,46 +28,69 @@ import java.util.Set;
  * Великие тракты: широкие мощёные дороги между дальними поселениями, союзниками и сюзеренами.
  * Бордюры, насыпи и выемки, мосты на опорах с перилами, фонари, аллеи деревьев,
  * верстовые столбы со знамёнами и постоялые дворы. Облик зависит от эпохи королевства.
+ * Тот же движок (узкий режим) прокладывает и обычные дороги Roads. Готовая трасса хранится целиком
+ * (путь, профиль высот, якоря фонарей) и перекладывается в стиле новой эпохи целиком.
  */
 public final class Highways {
     public static boolean on = true;
     static final Set<String> DONE = new HashSet<>();
+    /** Все трассы: строящиеся и готовые (готовые нужны для смены облика и добивки пропусков). */
     static final List<Way> WAYS = new ArrayList<>();
     static final Map<Kingdoms.K, Integer> BUILT = new EnumMap<>(Kingdoms.K.class);
     static final String[] SIDE = {"Восточный", "Юго-восточный", "Южный", "Юго-западный", "Западный", "Северо-западный", "Северный", "Северо-восточный"};
     static final String[] NOUN = {"тракт", "большак", "королевский путь", "торговый путь", "шлях", "старый путь"};
-    private static final int NONE = Integer.MIN_VALUE;
+    private static final int NONE = RoadNet.NONE;
+    private static final int LOOK = 20, BATCH = 6;
     private static int t;
+    private static boolean registered;
 
     private Highways() {}
 
+    /** Регистрирует сохранение трасс; вызывать из GodBox.onInitialize до загрузки мира. */
+    public static void init() {
+        if (registered) return;
+        registered = true;
+        SaveExt.register("roadnet", Highways::saveLines, Highways::loadLine, WAYS::clear);
+    }
+
     static final class Way {
         final Kingdoms.K k;
-        final ServerWorld w;
+        ServerWorld w;
         final String key, name;
+        final boolean narrow;
         final int n;
-        final int[] xs, zs, hy;
+        final int[] xs, zs, hy, deck;
+        final boolean[] wt;
+        /** Эпоха, в которой точка уложена, плюс 1 (0 — ещё не уложена). */
+        final byte[] pe;
         final double[] tx, tz;
-        final Map<Long, Boolean> cells = new HashMap<>();
-        final List<Integer> miss = new ArrayList<>();
-        int i, pass;
-        boolean inn;
+        final Map<Integer, Integer> lampY = new HashMap<>(), mileY = new HashMap<>();
+        int i, era;
+        boolean inn, done, fin;
+        Place last;
+        Set<Long> corr;
 
-        Way(Kingdoms.K k, ServerWorld w, String key, String name, List<int[]> pts) {
+        Way(Kingdoms.K k, ServerWorld w, String key, String name, boolean narrow, List<int[]> pts, int era) {
             this.k = k;
             this.w = w;
             this.key = key;
             this.name = name;
+            this.narrow = narrow;
+            this.era = era;
             n = pts.size();
             xs = new int[n];
             zs = new int[n];
             hy = new int[n];
+            deck = new int[n];
+            wt = new boolean[n];
+            pe = new byte[n];
             tx = new double[n];
             tz = new double[n];
             for (int j = 0; j < n; j++) {
                 xs[j] = pts.get(j)[0];
                 zs[j] = pts.get(j)[1];
                 hy[j] = NONE;
+                deck[j] = NONE;
             }
             for (int j = 0; j < n; j++) {
                 int a = Math.max(0, j - 3), b = Math.min(n - 1, j + 3);
@@ -78,6 +100,11 @@ public final class Highways {
                 tz[j] = dz / l;
             }
         }
+
+        double rad() { return narrow ? 2.0 : 2.7; }
+
+        /** Граница проезжей части: у узкой дороги кромка дальше неё — только перила моста. */
+        double lane() { return narrow ? 1.5 : 1.7; }
     }
 
     /** Ставит блоки порциями, затем соединяет заборы, стены и стёкла. */
@@ -93,11 +120,24 @@ public final class Highways {
 
         void put(BlockPos p, Block b) { put(p, b.getDefaultState()); }
 
+        boolean finished() { return i >= ps.size() && fix >= ps.size(); }
+
         @Override
         public boolean tick() {
+            try {
+                return step();
+            } catch (Exception e) {
+                GodBox.LOG.error("GodBox: сбой укладки дороги", e);
+                i = fix = ps.size();
+                return true;
+            }
+        }
+
+        private boolean step() {
             for (int n = 0; n < 40 && i < ps.size(); n++, i++) {
                 BlockPos p = ps.get(i);
                 if (!w.isChunkLoaded(p.getX() >> 4, p.getZ() >> 4)) continue;
+                if (w.getBlockState(p).hasBlockEntity() && !ss.get(i).hasBlockEntity()) continue;
                 w.setBlockState(p, ss.get(i), Block.NOTIFY_ALL);
             }
             if (i < ps.size()) return false;
@@ -167,6 +207,7 @@ public final class Highways {
                 || s.isOf(Blocks.SPRUCE_PLANKS) || s.isOf(Blocks.COARSE_DIRT) || s.isOf(Blocks.WAXED_CUT_COPPER) || s.isOf(Blocks.STRIPPED_SPRUCE_LOG);
     }
 
+
     // ---------------- трасса ----------------
     static String name(BlockPos a, BlockPos b) {
         double ang = Math.atan2(b.getZ() - a.getZ(), b.getX() - a.getX());
@@ -175,52 +216,64 @@ public final class Highways {
         return SIDE[sec] + " " + NOUN[h] + " к «" + Colonies.name(b) + "»";
     }
 
-    static Way plan(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b, String key) {
-        double dx = b.getX() - a.getX(), dz = b.getZ() - a.getZ();
-        double len = Math.sqrt(dx * dx + dz * dz);
-        if (len < 30 || len > 2500) return null;
-        double px = -dz / len, pz = dx / len;
-        int seed = key.hashCode();
-        double amp = Math.min(22, len / 10) * ((seed & 1) == 0 ? 1 : -1);
-        double waves = 1 + Math.floorMod(seed >> 3, 2);
-        int n = (int) (len * 3);
-        List<int[]> pts = new ArrayList<>();
-        for (int s = 0; s <= n; s++) {
-            double f = (double) s / n;
-            double off = amp * Math.sin(Math.PI * f * waves) * Math.sin(Math.PI * f);
-            int x = (int) Math.round(a.getX() + dx * f + px * off), z = (int) Math.round(a.getZ() + dz * f + pz * off);
-            if (!pts.isEmpty()) {
-                int[] l = pts.get(pts.size() - 1);
-                if (l[0] == x && l[1] == z) continue;
+    /** Рельеф для обхода: здания, лава и грядки закрыты или дороги, вода и чужие постройки — с доплатой. */
+    static RoadNet.Terrain terrain(ServerWorld w, BlockPos a, BlockPos b, List<Civ.Building> bs, int margin) {
+        return new RoadNet.Terrain() {
+            @Override
+            public int height(int x, int z) {
+                if (!w.isChunkLoaded(x >> 4, z >> 4)) return NONE;
+                int g = TownBuilder.ground(w, x, z);
+                return w.getBlockState(new BlockPos(x, g - 1, z)).getFluidState().isEmpty() ? g - 1 : g;
             }
-            pts.add(new int[]{x, z});
-        }
-        if (pts.size() < 10) return null;
-        return new Way(k, w, key, name(a, b), pts);
+
+            @Override
+            public double pen(int x, int z) {
+                if (!w.isChunkLoaded(x >> 4, z >> 4)) return 0.2;
+                if (Math.max(Math.abs(x - a.getX()), Math.abs(z - a.getZ())) < 14 || Math.max(Math.abs(x - b.getX()), Math.abs(z - b.getZ())) < 14) return 0;
+                for (Civ.Building q : bs) if (x >= q.x0 - margin && x <= q.x1 + margin && z >= q.z0 - margin && z <= q.z1 + margin) return -1;
+                int g = TownBuilder.ground(w, x, z);
+                BlockState s = w.getBlockState(new BlockPos(x, g - 1, z));
+                if (s.isOf(Blocks.LAVA)) return -1;
+                if (!s.getFluidState().isEmpty()) return 2.0;
+                return Roads.terrain(s) || Roads.fam(s) ? 0 : 3.0;
+            }
+        };
     }
 
+    static Way plan(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b, String key, boolean narrow) {
+        double dx = b.getX() - a.getX(), dz = b.getZ() - a.getZ();
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < (narrow ? 20 : 30) || len > 2500) return null;
+        List<int[]> wp = RoadNet.route(terrain(w, a, b, allBuildings(), narrow ? 3 : 4), a.getX(), a.getZ(), b.getX(), b.getZ(), 3000);
+        if (wp == null) wp = List.of(new int[]{a.getX(), a.getZ()}, new int[]{b.getX(), b.getZ()});
+        List<int[]> pts = RoadNet.smooth(wp);
+        if (pts.size() < 10) return null;
+        return new Way(k, w, key, name(a, b), narrow, pts, Civ.city(k).era);
+    }
+
+    /** Высота верха земли в точке трассы (над водой — уровень настила); NONE, если чанк не загружен. */
     static int raw(Way wy, int j) {
         if (wy.hy[j] != NONE) return wy.hy[j];
         int x = wy.xs[j], z = wy.zs[j];
-        if (!wy.w.isChunkLoaded(x >> 4, z >> 4)) return NONE;
+        if (wy.w == null || !wy.w.isChunkLoaded(x >> 4, z >> 4)) return NONE;
         int g = TownBuilder.ground(wy.w, x, z);
-        BlockState s = wy.w.getBlockState(new BlockPos(x, g - 1, z));
-        wy.hy[j] = s.getFluidState().isEmpty() ? g - 1 : g;
+        boolean fl = !wy.w.getBlockState(new BlockPos(x, g - 1, z)).getFluidState().isEmpty();
+        wy.wt[j] = fl;
+        wy.hy[j] = fl ? g : g - 1;
         return wy.hy[j];
     }
 
-    static int smooth(Way wy, int i) {
-        long sum = 0;
-        int c = 0;
-        for (int d = -6; d <= 6; d++) {
-            int j = i + d;
-            if (j < 0 || j >= wy.n) continue;
-            int h = raw(wy, j);
-            if (h == NONE) continue;
-            sum += h;
-            c++;
+    /** Считает профиль высот для ещё не рассчитанных точек [from,to) с запасом вперёд. */
+    static void ensureDeck(Way wy, int from, int to) {
+        to = Math.min(wy.n, to);
+        for (int j = Math.max(0, from - LOOK); j < Math.min(wy.n, to + LOOK); j++) raw(wy, j);
+        for (int j = from; j < to; ) {
+            if (wy.deck[j] != NONE || wy.hy[j] == NONE) { j++; continue; }
+            int e = j;
+            while (e < to && wy.deck[e] == NONE && wy.hy[e] != NONE) e++;
+            RoadNet.solveDeck(wy.hy, wy.wt, wy.deck, j, e, LOOK);
+            j = e;
         }
-        return c == 0 ? NONE : (int) Math.round((double) sum / c);
     }
 
     static void clearUp(ServerWorld w, Place pl, BlockPos p) {
@@ -236,94 +289,162 @@ public final class Highways {
         return bs;
     }
 
+    /** Клетки в полосе трассы: декор не должен попадать на полотно, в том числе на ещё не уложенное. */
+    static Set<Long> corridor(Way wy) {
+        if (wy.corr != null) return wy.corr;
+        Set<Long> c = new HashSet<>();
+        int rc = (int) Math.ceil(wy.rad()) + 1;
+        for (int j = 0; j < wy.n; j++)
+            for (int dx = -rc; dx <= rc; dx++) for (int dz = -rc; dz <= rc; dz++) c.add(BlockPos.asLong(wy.xs[j] + dx, 0, wy.zs[j] + dz));
+        return wy.corr = c;
+    }
+
     static boolean free(Way wy, List<Civ.Building> bs, int x, int z) {
-        return wy.w.isChunkLoaded(x >> 4, z >> 4) && !Roads.inBuilding(bs, x, z) && !wy.cells.containsKey(BlockPos.asLong(x, 0, z))
+        return wy.w.isChunkLoaded(x >> 4, z >> 4) && !Roads.inBuilding(bs, x, z) && !corridor(wy).contains(BlockPos.asLong(x, 0, z))
                 && TownBuilder.dry(wy.w, x, z);
     }
 
-    static void point(Way wy, int i, int era, Place pl, List<Civ.Building> bs) {
-        ServerWorld w = wy.w;
-        int x = wy.xs[i], z = wy.zs[i];
-        if (Math.max(Math.abs(x - wy.xs[0]), Math.abs(z - wy.zs[0])) < 12) return;
-        if (Math.max(Math.abs(x - wy.xs[wy.n - 1]), Math.abs(z - wy.zs[wy.n - 1])) < 12) return;
-        Random r = w.getRandom();
-        int deck = smooth(wy, i);
-        if (deck == NONE) return;
-        double px = -wy.tz[i], pz = wy.tx[i];
-        boolean water = false;
-        Set<Long> seen = new HashSet<>();
-        for (int s2 = -5; s2 <= 5; s2++) {
-            double o = s2 * 0.5;
-            int cx = (int) Math.round(x + px * o), cz = (int) Math.round(z + pz * o);
-            long key = BlockPos.asLong(cx, 0, cz);
-            if (!seen.add(key)) continue;
-            if (!w.isChunkLoaded(cx >> 4, cz >> 4) || Roads.inBuilding(bs, cx, cz)) continue;
-            boolean edge = Math.abs(o) > 1.6;
-            Boolean was = wy.cells.get(key);
-            if (was != null && (was || edge)) continue;
-            wy.cells.put(key, !edge);
-            int g = TownBuilder.ground(w, cx, cz);
-            BlockState s = w.getBlockState(new BlockPos(cx, g - 1, cz));
-            if (s.isOf(Blocks.LAVA)) continue;
-            if (!s.getFluidState().isEmpty()) {
-                water = true;
-                int y = Math.max(deck, g);
-                pl.put(new BlockPos(cx, y, cz), bridge(era, edge));
-                for (int yy = y + 1; yy <= y + 3; yy++) clearUp(w, pl, new BlockPos(cx, yy, cz));
-                if (Math.abs(o) >= 2.4) pl.put(new BlockPos(cx, y + 1, cz), rail(era));
-                continue;
-            }
-            int sy = g - 1, y = deck;
-            if (y > sy + 8) y = sy + 8;
-            if (y < sy - 6) y = sy - 6;
-            for (int yy = sy + 1; yy < y; yy++) pl.put(new BlockPos(cx, yy, cz), fill(era));
-            for (int yy = y + 1; yy <= sy; yy++) pl.put(new BlockPos(cx, yy, cz), Blocks.AIR);
-            pl.put(new BlockPos(cx, y, cz), road(era, edge, i, r));
-            int top = Math.max(y, sy);
-            for (int yy = top + 1; yy <= top + 5; yy++) clearUp(w, pl, new BlockPos(cx, yy, cz));
+    /** Опора вниз до твёрдого грунта (через воду, воздух и заменяемые блоки). */
+    static void pillarDown(ServerWorld w, Place pl, int era, int x, int y, int z) {
+        for (int yy = y, c = 0; c < 48 && yy > w.getBottomY(); yy--, c++) {
+            BlockPos p = new BlockPos(x, yy, z);
+            BlockState st = w.getBlockState(p);
+            if (st.getFluidState().isEmpty() && !st.isAir() && !st.isReplaceable()) break;
+            pl.put(p, pillar(era));
         }
-        if (water) {
-            if (i % 7 == 0) for (int s2 = -4; s2 <= 4; s2 += 4) {
-                double o = s2 * 0.5;
-                int cx = (int) Math.round(x + px * o), cz = (int) Math.round(z + pz * o);
-                if (!w.isChunkLoaded(cx >> 4, cz >> 4)) continue;
-                int g = TownBuilder.ground(w, cx, cz), y = Math.max(deck, g);
-                for (int yy = y - 1, c = 0; c < 48 && yy > w.getBottomY(); yy--, c++) {
-                    BlockPos p = new BlockPos(cx, yy, cz);
-                    BlockState st = w.getBlockState(p);
-                    if (st.getFluidState().isEmpty() && !st.isAir() && !st.isReplaceable()) break;
-                    pl.put(p, pillar(era));
+    }
+
+    static boolean pillarBlock(BlockState s) {
+        return s.isOf(Blocks.SPRUCE_LOG) || s.isOf(Blocks.STONE_BRICKS) || s.isOf(Blocks.DEEPSLATE_BRICKS) || s.isOf(Blocks.POLISHED_BLACKSTONE_BRICKS);
+    }
+
+    static boolean railBlock(BlockState s) {
+        return s.isAir() || s.getBlock() instanceof FenceBlock || s.getBlock() instanceof WallBlock || s.isOf(Blocks.IRON_BARS);
+    }
+
+    /**
+     * Укладывает одну точку трассы: диск клеток вокруг неё (без дыр на диагоналях, постоянная ширина).
+     * Клетку красит ближайшая точка. true — все клетки обработаны (иначе точку повторим, когда загрузятся чанки).
+     */
+    static boolean point(Way wy, int i, int era, Place pl, List<Civ.Building> bs) {
+        ServerWorld w = wy.w;
+        int x = wy.xs[i], z = wy.zs[i], skip = wy.narrow ? 8 : 12;
+        byte target = (byte) (era + 1);
+        if (Math.max(Math.abs(x - wy.xs[0]), Math.abs(z - wy.zs[0])) < skip || Math.max(Math.abs(x - wy.xs[wy.n - 1]), Math.abs(z - wy.zs[wy.n - 1])) < skip) {
+            wy.pe[i] = target;
+            return true;
+        }
+        int deck = wy.deck[i];
+        if (deck == NONE) return false;
+        boolean redo = wy.pe[i] > 0, complete = true, bridge = wy.wt[i];
+        double R = wy.rad();
+        int rc = (int) Math.ceil(R);
+        Random r = w.getRandom();
+        for (int oz = -rc; oz <= rc; oz++)
+            for (int ox = -rc; ox <= rc; ox++) {
+                double d = Math.sqrt(ox * ox + oz * oz);
+                if (d > R) continue;
+                int cx = x + ox, cz = z + oz, own = i;
+                double best = d;
+                for (int j = Math.max(0, i - 6); j <= Math.min(wy.n - 1, i + 6); j++) {
+                    if (j == i) continue;
+                    double dj = Math.sqrt((cx - wy.xs[j]) * (cx - wy.xs[j]) + (cz - wy.zs[j]) * (cz - wy.zs[j]));
+                    if (dj < best - 1e-9 || Math.abs(dj - best) < 1e-9 && j < own) { best = dj; own = j; }
                 }
+                if (own != i) continue;
+                if (!w.isChunkLoaded(cx >> 4, cz >> 4)) { complete = false; continue; }
+                if (Roads.inBuilding(bs, cx, cz)) continue;
+                boolean edge = best > wy.lane();
+                BlockPos top = new BlockPos(cx, deck, cz);
+                if (redo) {
+                    // смена облика: только то, что мы же и уложили на проектной высоте
+                    if (!Roads.fam(w.getBlockState(top))) continue;
+                    if (bridge) {
+                        pl.put(top, bridge(era, edge));
+                        if (edge && railBlock(w.getBlockState(top.up()))) pl.put(top.up(), rail(era));
+                        for (int yy = deck - 1, c = 0; c < 48 && yy > w.getBottomY(); yy--, c++) {
+                            BlockPos p = new BlockPos(cx, yy, cz);
+                            if (!pillarBlock(w.getBlockState(p))) break;
+                            pl.put(p, pillar(era));
+                        }
+                    } else pl.put(top, wy.narrow ? Roads.mat(era, r) : road(era, edge, i, r));
+                    continue;
+                }
+                int g = TownBuilder.ground(w, cx, cz);
+                int sy = g - 1;
+                BlockState s = w.getBlockState(new BlockPos(cx, sy, cz));
+                if (s.isOf(Blocks.LAVA)) continue;
+                if (!s.getFluidState().isEmpty()) {
+                    bridge = true;
+                    pl.put(top, bridge(era, edge));
+                    for (int yy = deck + 1; yy <= deck + 3; yy++) clearUp(w, pl, new BlockPos(cx, yy, cz));
+                    if (edge) pl.put(top.up(), rail(era));
+                    if (i % 6 == 0 && (edge || d < 0.5) || deck - g > 2 && i % 2 == 0 && edge) pillarDown(w, pl, era, cx, deck - 1, cz);
+                    continue;
+                }
+                if (edge && wy.narrow) continue;
+                if (!Roads.terrain(s) && !Roads.fam(s) || s.hasBlockEntity()) continue;
+                if (deck - sy > 20 || sy - deck > 14) continue;
+                boolean ok = true;
+                for (int yy = deck + 1; yy <= sy && ok; yy++) {
+                    BlockState u = w.getBlockState(new BlockPos(cx, yy, cz));
+                    ok = !u.hasBlockEntity() && (u.isAir() || u.isReplaceable() || Roads.terrain(u) || u.isIn(BlockTags.LEAVES) || u.isIn(BlockTags.LOGS));
+                }
+                if (!ok) continue;
+                for (int yy = sy + 1; yy < deck; yy++) pl.put(new BlockPos(cx, yy, cz), fill(era));
+                for (int yy = deck + 1; yy <= sy; yy++) pl.put(new BlockPos(cx, yy, cz), Blocks.AIR);
+                pl.put(top, wy.narrow ? Roads.mat(era, r) : road(era, edge, i, r));
+                if (deck <= sy) {
+                    BlockState below = w.getBlockState(top.down());
+                    if (below.isAir() || !below.getFluidState().isEmpty() || below.isReplaceable()) pl.put(top.down(), fill(era));
+                }
+                for (int yy = deck + 1; yy <= deck + 4; yy++) clearUp(w, pl, new BlockPos(cx, yy, cz));
             }
-            if (i % 8 == 4) for (int sd = -1; sd <= 1; sd += 2) {
-                int cx = (int) Math.round(x + px * 2.5 * sd), cz = (int) Math.round(z + pz * 2.5 * sd);
-                if (!w.isChunkLoaded(cx >> 4, cz >> 4)) continue;
-                int g = TownBuilder.ground(w, cx, cz), y = Math.max(deck, g);
-                pl.put(new BlockPos(cx, y + 2, cz), era == 9 ? Blocks.SOUL_LANTERN : Blocks.LANTERN);
+        if (complete) {
+            decor(wy, i, era, pl, bs, redo);
+            wy.pe[i] = target;
+        }
+        return complete;
+    }
+
+    /** Фонари, деревья, столбы и постоялый двор; якоря фонарей и столбов запоминаются, чтобы не дублировать и менять стиль. */
+    static void decor(Way wy, int i, int era, Place pl, List<Civ.Building> bs, boolean redo) {
+        ServerWorld w = wy.w;
+        int x = wy.xs[i], z = wy.zs[i], deck = wy.deck[i];
+        double px = -wy.tz[i], pz = wy.tx[i];
+        if (wy.wt[i]) {
+            if (!redo && i % 8 == 4) for (int sd = -1; sd <= 1; sd += 2) {
+                int cx = (int) Math.round(x + px * 2 * sd), cz = (int) Math.round(z + pz * 2 * sd);
+                if (w.isChunkLoaded(cx >> 4, cz >> 4) && !Roads.inBuilding(bs, cx, cz))
+                    pl.put(new BlockPos(cx, deck + 2, cz), (era >= 4 ? era == 9 ? Blocks.SOUL_LANTERN : Blocks.LANTERN : Blocks.TORCH).getDefaultState());
             }
+            return;
+        }
+        if (wy.narrow) {
+            if (era >= 2 && i % 16 == 8) anchor(wy, wy.lampY, i, bs, x + px * 2 * ((i / 16) % 2 == 0 ? 1 : -1), z + pz * 2 * ((i / 16) % 2 == 0 ? 1 : -1), redo,
+                    (cx, y, cz) -> roadLamp(pl, era, cx, y, cz));
             return;
         }
         if (i % 14 == 0) {
             int sd = (i / 14) % 2 == 0 ? 1 : -1;
-            int cx = (int) Math.round(x + px * 3.5 * sd), cz = (int) Math.round(z + pz * 3.5 * sd);
-            if (free(wy, bs, cx, cz)) lamp(w, pl, era, cx, cz);
+            anchor(wy, wy.lampY, i, bs, x + px * 3.5 * sd, z + pz * 3.5 * sd, redo, (cx, y, cz) -> lamp(pl, era, cx, y, cz));
         }
+        if (i % 64 == 32) {
+            int sd = (i / 64) % 2 == 0 ? 1 : -1;
+            anchor(wy, wy.mileY, i, bs, x + px * 3.5 * sd, z + pz * 3.5 * sd, redo, (cx, y, cz) -> milestone(pl, era, wy.k, cx, y, cz));
+        }
+        if (redo) return;
         if (i % 22 == 11) {
             int sd = (i / 22) % 2 == 0 ? -1 : 1;
             int cx = (int) Math.round(x + px * 5.5 * sd), cz = (int) Math.round(z + pz * 5.5 * sd);
             if (free(wy, bs, cx, cz)) tree(w, pl, wy.k, cx, cz);
-        }
-        if (i % 64 == 32) {
-            int sd = (i / 64) % 2 == 0 ? 1 : -1;
-            int cx = (int) Math.round(x + px * 3.5 * sd), cz = (int) Math.round(z + pz * 3.5 * sd);
-            if (free(wy, bs, cx, cz)) milestone(w, pl, era, wy.k, cx, cz);
         }
         if (!wy.inn && wy.n >= 400 && i >= wy.n / 2) {
             for (int sd = 1; sd >= -1 && !wy.inn; sd -= 2) {
                 int cx = (int) Math.round(x + px * 9 * sd), cz = (int) Math.round(z + pz * 9 * sd);
                 if (!w.isChunkLoaded(cx >> 4, cz >> 4) || !TownBuilder.dryArea(w, cx, cz, 4)) continue;
                 boolean clash = false;
-                for (int dx = -4; dx <= 4 && !clash; dx += 2) for (int dz = -4; dz <= 4; dz += 2) if (Roads.inBuilding(bs, cx + dx, cz + dz)) { clash = true; break; }
+                for (int dx = -4; dx <= 4 && !clash; dx += 2) for (int dz = -4; dz <= 4; dz += 2) if (Roads.inBuilding(bs, cx + dx, cz + dz) || corridor(wy).contains(BlockPos.asLong(cx + dx, 0, cz + dz))) { clash = true; break; }
                 if (clash) continue;
                 inn(wy, pl, era, cx, cz, -px * sd, -pz * sd);
                 wy.inn = true;
@@ -332,8 +453,25 @@ public final class Highways {
         }
     }
 
-    static void lamp(ServerWorld w, Place pl, int era, int x, int z) {
-        BlockPos b = new BlockPos(x, TownBuilder.ground(w, x, z), z);
+    private interface Put { void at(int x, int y, int z); }
+
+    /** Ставит предмет декора в слоте i: по якорю (перекладка) или на свободное место рядом с дорогой (запоминает высоту). */
+    private static void anchor(Way wy, Map<Integer, Integer> map, int i, List<Civ.Building> bs, double fx, double fz, boolean redo, Put put) {
+        int cx = (int) Math.round(fx), cz = (int) Math.round(fz);
+        Integer y = map.get(i);
+        if (y != null) {
+            if (redo && wy.w.isChunkLoaded(cx >> 4, cz >> 4)) put.at(cx, y, cz);
+            return;
+        }
+        if (!free(wy, bs, cx, cz)) return;
+        int gy = TownBuilder.ground(wy.w, cx, cz);
+        if (Math.abs(gy - wy.deck[i]) > 2) return;
+        map.put(i, gy);
+        put.at(cx, gy, cz);
+    }
+
+    static void lamp(Place pl, int era, int x, int y, int z) {
+        BlockPos b = new BlockPos(x, y, z);
         Block post, light;
         int h;
         if (era <= 1) { post = Blocks.OAK_FENCE; light = Blocks.TORCH; h = 1; }
@@ -346,6 +484,19 @@ public final class Highways {
         for (int k = 0; k < h; k++) pl.put(b.up(k), post);
         pl.put(b.up(h), light);
         if (era >= 9) pl.put(b.up(h + 1), era == 9 ? Blocks.AMETHYST_CLUSTER : Blocks.LIGHTNING_ROD);
+    }
+
+    /** Придорожный столбик узкой дороги: забор с факелом, с эпохи 4 — стена с фонарём. */
+    static void roadLamp(Place pl, int era, int x, int y, int z) {
+        pl.put(new BlockPos(x, y, z), era >= 4 ? Blocks.STONE_BRICK_WALL : Blocks.OAK_FENCE);
+        pl.put(new BlockPos(x, y + 1, z), era >= 4 ? Blocks.LANTERN : Blocks.TORCH);
+    }
+
+    static void milestone(Place pl, int era, Kingdoms.K k, int x, int y, int z) {
+        BlockPos b = new BlockPos(x, y, z);
+        Block base = era < 4 ? Blocks.COBBLESTONE : era < 9 ? Blocks.CHISELED_STONE_BRICKS : era == 9 ? Blocks.CHISELED_DEEPSLATE : Blocks.CHISELED_POLISHED_BLACKSTONE;
+        pl.put(b, base);
+        pl.put(b.up(), banner(k));
     }
 
     static void tree(ServerWorld w, Place pl, Kingdoms.K k, int x, int z) {
@@ -379,13 +530,6 @@ public final class Highways {
                     if (w.getBlockState(p).isAir()) pl.put(p, lv);
                 }
         }
-    }
-
-    static void milestone(ServerWorld w, Place pl, int era, Kingdoms.K k, int x, int z) {
-        BlockPos b = new BlockPos(x, TownBuilder.ground(w, x, z), z);
-        Block base = era < 4 ? Blocks.COBBLESTONE : era < 9 ? Blocks.CHISELED_STONE_BRICKS : era == 9 ? Blocks.CHISELED_DEEPSLATE : Blocks.CHISELED_POLISHED_BLACKSTONE;
-        pl.put(b, base);
-        pl.put(b.up(), banner(k));
     }
 
     static void inn(Way wy, Place pl, int era, int cx, int cz, double ux, double uz) {
@@ -437,30 +581,35 @@ public final class Highways {
     private static BlockState st(int era, Block b) { return Eras.style(era, Civ.Kind.HOUSE, b.getDefaultState()); }
 
     // ---------------- строительство ----------------
-    static void step(Way wy, int count) {
-        Place pl = new Place(wy.w);
-        List<Civ.Building> bs = allBuildings();
-        int era = Civ.city(wy.k).era;
-        for (int c = 0; c < count && wy.i < wy.n; c++, wy.i++) {
-            int x = wy.xs[wy.i], z = wy.zs[wy.i];
-            if (!wy.w.isChunkLoaded(x >> 4, z >> 4)) { wy.miss.add(wy.i); continue; }
-            point(wy, wy.i, era, pl, bs);
-        }
-        if (!pl.ps.isEmpty()) Tasks.add(pl);
+    static ServerWorld world(Way wy) {
+        if (wy.w == null && wy.k.world != null) wy.w = wy.k.world;
+        return wy.w;
     }
 
-    static void retry(Way wy) {
+    static void step(Way wy) {
+        if (wy.last != null && !wy.last.finished()) return;
+        int end = Math.min(wy.n, wy.i + BATCH);
+        ensureDeck(wy, wy.i, end);
         Place pl = new Place(wy.w);
         List<Civ.Building> bs = allBuildings();
-        int era = Civ.city(wy.k).era, done = 0;
-        for (Iterator<Integer> it = wy.miss.iterator(); it.hasNext() && done < 400; ) {
-            int j = it.next();
-            if (!wy.w.isChunkLoaded(wy.xs[j] >> 4, wy.zs[j] >> 4)) continue;
-            point(wy, j, era, pl, bs);
-            it.remove();
+        for (; wy.i < end; wy.i++) point(wy, wy.i, wy.era, pl, bs);
+        if (!pl.ps.isEmpty()) { Tasks.add(pl); wy.last = pl; }
+    }
+
+    /** Добивает точки, пропущенные из-за незагруженных чанков (раньше они бросались после 15 попыток). */
+    static void retry(Way wy) {
+        if (wy.last != null && !wy.last.finished()) return;
+        Place pl = new Place(wy.w);
+        List<Civ.Building> bs = null;
+        int tgt = wy.era + 1, done = 0;
+        for (int j = 0; j < wy.n && done < 60; j++) {
+            if (wy.pe[j] >= tgt || !wy.w.isChunkLoaded(wy.xs[j] >> 4, wy.zs[j] >> 4)) continue;
+            if (wy.deck[j] == NONE) ensureDeck(wy, j, j + BATCH);
+            if (bs == null) bs = allBuildings();
+            point(wy, j, wy.era, pl, bs);
             done++;
         }
-        if (!pl.ps.isEmpty()) Tasks.add(pl);
+        if (!pl.ps.isEmpty()) { Tasks.add(pl); wy.last = pl; }
     }
 
     static boolean active(String key) {
@@ -469,22 +618,27 @@ public final class Highways {
     }
 
     static boolean busy(Kingdoms.K k) {
-        for (Way wy : WAYS) if (wy.k == k) return true;
+        for (Way wy : WAYS) if (wy.k == k && !wy.narrow && !wy.fin) return true;
         return false;
     }
 
-    static boolean start(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b) {
+    /** Забывает готовую трассу по ключу (перестройка по воле бога). */
+    static void forget(String key) {
+        WAYS.removeIf(wy -> wy.key.equals(key) && wy.fin);
+    }
+
+    static boolean start(ServerWorld w, Kingdoms.K k, BlockPos a, BlockPos b, boolean narrow) {
         String key = Roads.key(a, b);
         if (active(key)) return false;
-        Way wy = plan(w, k, a, b, key);
+        Way wy = plan(w, k, a, b, key, narrow);
         if (wy == null) return false;
         WAYS.add(wy);
-        Chronicle.say(w.getServer(), k, "начинает прокладывать «" + wy.name + "» (" + (int) Math.sqrt(a.getSquaredDistance(b)) + " блоков)");
+        if (!narrow) Chronicle.say(w.getServer(), k, "начинает прокладывать «" + wy.name + "» (" + (int) Math.sqrt(a.getSquaredDistance(b)) + " блоков)");
         return true;
     }
 
     static void finish(MinecraftServer s, Way wy) {
-        WAYS.remove(wy);
+        if (wy.narrow) return;
         DONE.add(wy.key);
         BUILT.merge(wy.k, 1, Integer::sum);
         Chronicle.say(s, wy.k, "завершает «" + wy.name + "»");
@@ -509,7 +663,7 @@ public final class Highways {
                 double d = p.getSquaredDistance(o);
                 if (d < 100 * 100 || d > 2000.0 * 2000.0) continue;
                 String key = Roads.key(o, p);
-                if (DONE.contains(key) || active(key)) continue;
+                if (DONE.contains(key) || Roads.DONE.contains(key) || active(key)) continue;
                 if (d < bd) { bd = d; best = new BlockPos[]{o, p}; }
             }
         }
@@ -520,7 +674,7 @@ public final class Highways {
             double d = k.capital.getSquaredDistance(o.capital);
             if (d < 100 * 100 || d > 2000.0 * 2000.0) continue;
             String key = Roads.key(k.capital, o.capital);
-            if (DONE.contains(key) || active(key)) continue;
+            if (DONE.contains(key) || Roads.DONE.contains(key) || active(key)) continue;
             return new BlockPos[]{k.capital, o.capital};
         }
         return null;
@@ -529,10 +683,22 @@ public final class Highways {
     public static void tick(MinecraftServer s) {
         ++t;
         if (t % 10 == 0) for (Way wy : new ArrayList<>(WAYS)) {
-            if (!wy.k.alive) { WAYS.remove(wy); continue; }
-            if (wy.i < wy.n) step(wy, 10);
-            else if (wy.miss.isEmpty() || wy.pass > 15) finish(s, wy);
-            else if (t % 1200 == 0) { wy.pass++; retry(wy); }
+            if (!wy.k.alive) { if (!wy.fin) WAYS.remove(wy); continue; }
+            if (world(wy) == null) continue;
+            if (wy.i < wy.n) step(wy);
+            else if (!wy.done) {
+                wy.done = true;
+                wy.corr = null;
+                if (!wy.fin) { wy.fin = true; finish(s, wy); }
+            } else if (t % 200 == 0) { retry(wy); wy.corr = null; }
+        }
+        if (t % 600 == 0) for (Way wy : WAYS) {
+            // новая эпоха: вся трасса (полотно, кромки, перила, опоры, фонари) перекладывается заново
+            if (wy.done && wy.k.alive && wy.k.world != null && Civ.city(wy.k).era != wy.era) {
+                wy.era = Civ.city(wy.k).era;
+                wy.i = 0;
+                wy.done = false;
+            }
         }
         if (!on || t % 3000 != 0) return;
         for (Kingdoms.K k : Kingdoms.K.values()) {
@@ -542,7 +708,7 @@ public final class Highways {
             if (c.stone < 20 || c.wood < 10 || busy(k)) continue;
             BlockPos[] pair = choose(k);
             if (pair == null) continue;
-            if (start(w, k, pair[0], pair[1])) { c.stone -= 20; c.wood -= 10; }
+            if (start(w, k, pair[0], pair[1], false)) { c.stone -= 20; c.wood -= 10; }
         }
     }
 
@@ -559,7 +725,8 @@ public final class Highways {
         }
         String key = Roads.key(k.capital, to);
         DONE.remove(key);
-        if (start(w, k, k.capital, to)) god.sendMessage(Text.literal("🛣 " + k.title + ": тракт прокладывается сюда").formatted(k.color), true);
+        forget(key);
+        if (start(w, k, k.capital, to, false)) god.sendMessage(Text.literal("🛣 " + k.title + ": тракт прокладывается сюда").formatted(k.color), true);
         else god.sendMessage(Text.literal("Этот тракт уже строится или слишком длинный").formatted(Formatting.GRAY), true);
     }
 
@@ -570,5 +737,77 @@ public final class Highways {
         WAYS.clear();
         BUILT.clear();
         t = 0;
+    }
+
+    // ---------------- сохранение трасс (@roadnet) ----------------
+    private static String enc(int[] a) {
+        StringBuilder sb = new StringBuilder();
+        for (int v : a) sb.append(v == NONE ? "--" : String.format("%2s", Integer.toString(v + 64, 36)).replace(' ', '0'));
+        return sb.toString();
+    }
+
+    private static String encMap(Map<Integer, Integer> m) {
+        if (m.isEmpty()) return "-";
+        StringBuilder sb = new StringBuilder();
+        for (var e : m.entrySet()) sb.append(sb.length() == 0 ? "" : ";").append(e.getKey()).append(':').append(e.getValue());
+        return sb.toString();
+    }
+
+    private static void decMap(String s, Map<Integer, Integer> m) {
+        if (s.equals("-") || s.isEmpty()) return;
+        for (String p : s.split(";")) {
+            String[] kv = p.split(":");
+            m.put(Integer.parseInt(kv[0]), Integer.parseInt(kv[1]));
+        }
+    }
+
+    static List<String> saveLines() {
+        List<String> out = new ArrayList<>();
+        for (Way wy : WAYS) {
+            StringBuilder path = new StringBuilder(wy.xs[0] + "," + wy.zs[0] + ",");
+            for (int j = 1; j < wy.n; j++) path.append((wy.xs[j] - wy.xs[j - 1] + 1) * 3 + (wy.zs[j] - wy.zs[j - 1] + 1));
+            StringBuilder pe = new StringBuilder(), wt = new StringBuilder();
+            for (int j = 0; j < wy.n; j++) {
+                pe.append(Character.forDigit(wy.pe[j], 36));
+                wt.append(wy.wt[j] ? '1' : '0');
+            }
+            out.add("W|" + wy.key + "|" + wy.name.replace('|', '/') + "|" + wy.k.name() + "|" + (wy.narrow ? 1 : 0) + "|" + wy.era + "|"
+                    + (wy.done ? 1 : 0) + (wy.fin ? 1 : 0) + (wy.inn ? 1 : 0) + "|" + wy.i + "|" + path + "|" + enc(wy.deck) + "|" + pe + "|" + wt
+                    + "|" + encMap(wy.lampY) + "|" + encMap(wy.mileY));
+        }
+        return out;
+    }
+
+    static void loadLine(String[] a) {
+        try {
+            if (a.length < 14 || !a[0].equals("W")) return;
+            String[] head = a[8].split(",", 3);
+            int x = Integer.parseInt(head[0]), z = Integer.parseInt(head[1]);
+            List<int[]> pts = new ArrayList<>();
+            pts.add(new int[]{x, z});
+            for (char ch : head[2].toCharArray()) {
+                int d = ch - '0';
+                x += d / 3 - 1;
+                z += d % 3 - 1;
+                pts.add(new int[]{x, z});
+            }
+            Way wy = new Way(Kingdoms.K.valueOf(a[3]), null, a[1], a[2], a[4].equals("1"), pts, Integer.parseInt(a[5]));
+            if (a[9].length() != wy.n * 2 || a[10].length() != wy.n || a[11].length() != wy.n) return;
+            wy.done = a[6].charAt(0) == '1';
+            wy.fin = a[6].charAt(1) == '1';
+            wy.inn = a[6].charAt(2) == '1';
+            wy.i = Math.min(wy.n, Integer.parseInt(a[7]));
+            for (int j = 0; j < wy.n; j++) {
+                String c = a[9].substring(2 * j, 2 * j + 2);
+                wy.deck[j] = c.equals("--") ? NONE : Integer.parseInt(c, 36) - 64;
+                wy.pe[j] = (byte) Character.digit(a[10].charAt(j), 36);
+                wy.wt[j] = a[11].charAt(j) == '1';
+            }
+            decMap(a[12], wy.lampY);
+            decMap(a[13], wy.mileY);
+            WAYS.add(wy);
+        } catch (RuntimeException e) {
+            GodBox.LOG.warn("GodBox: трасса не прочитана из сохранения: {}", e.toString());
+        }
     }
 }

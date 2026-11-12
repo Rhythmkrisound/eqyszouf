@@ -38,6 +38,7 @@ public final class Ages {
     }
 
     public static void tick(MinecraftServer s) {
+        Eras.tick(s);
         if (++timer % 100 != 0) return;
         for (Kingdoms.K k : Kingdoms.K.values()) {
             if (!k.alive || k.world == null || k.capital == null) continue;
@@ -114,6 +115,9 @@ public final class Ages {
         Civ.Building b = Civ.site(k, c, Civ.Kind.CASTLE, w);
         if (b == null) return;
         b.done = true;
+        b.era = c.era;
+        b.rev = Civ.REV;
+        b.busy = true;
         c.buildings.add(b);
         c.castle = true;
         List<BlockPos> ps = new ArrayList<>();
@@ -135,6 +139,7 @@ public final class Ages {
                     }
                 }
                 if (i >= ps.size()) {
+                    b.busy = false;
                     Chronicle.say(w.getServer(), k, "достроило замок!");
                     Fx.particles(w, ParticleTypes.FIREWORK, b.cx() + 0.5, b.y0 + 14, b.cz() + 0.5, 150, 4, 3, 4, 0.2);
                     w.playSound(null, b.center(), SoundEvents.ENTITY_PLAYER_LEVELUP, SoundCategory.BLOCKS, 3f, 0.8f);
@@ -218,5 +223,6 @@ public final class Ages {
 
     public static void clear() {
         timer = 0;
+        Eras.clear();
     }
 }

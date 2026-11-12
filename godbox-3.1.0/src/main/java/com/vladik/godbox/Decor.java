@@ -31,7 +31,8 @@ final class Decor {
 
     static boolean on = true;
     static int timer;
-    private static final Set<Civ.Building> PAVED = Collections.newSetFromMap(new WeakHashMap<>());
+    /** Здание -> эпоха, в которой вымощена дорожка от его двери. */
+    private static final java.util.Map<Civ.Building, Integer> PAVED = new WeakHashMap<>();
     private static final Block[] FLOWERS = {Blocks.POPPY, Blocks.DANDELION, Blocks.CORNFLOWER, Blocks.ALLIUM, Blocks.AZURE_BLUET,
         Blocks.OXEYE_DAISY, Blocks.LILY_OF_THE_VALLEY, Blocks.RED_TULIP, Blocks.ORANGE_TULIP, Blocks.PINK_TULIP, Blocks.WHITE_TULIP, Blocks.BLUE_ORCHID};
 
@@ -64,8 +65,9 @@ final class Decor {
         int n = 0;
         for (int i = 0; i < times; i++) {
             Civ.Building b = bs.get(r.nextInt(bs.size()));
-            if (!PAVED.contains(b)) {
-                PAVED.add(b);
+            Integer pe = PAVED.get(b);
+            if (pe == null || pe != c.era) {
+                PAVED.put(b, c.era);
                 if (pave(k, c, b, w)) n++;
                 continue;
             }
@@ -85,8 +87,14 @@ final class Decor {
         return Blocks.POLISHED_DEEPSLATE.getDefaultState();
     }
 
+    /** Покрытие дорожки любой из эпох (чтобы при смене эпохи его можно было перемостить). */
+    static boolean isPathBlock(BlockState s) {
+        for (int e = 0; e <= 10; e++) if (s.isOf(pathFor(e).getBlock())) return true;
+        return false;
+    }
+
     static boolean soilOrPath(BlockState s) {
-        return s.isIn(BlockTags.DIRT) || s.isOf(Blocks.SAND) || s.isOf(Blocks.RED_SAND) || s.isOf(Blocks.GRAVEL) || s.isOf(Blocks.DIRT_PATH);
+        return isPathBlock(s) || s.isIn(BlockTags.DIRT) || s.isOf(Blocks.SAND) || s.isOf(Blocks.RED_SAND) || s.isOf(Blocks.GRAVEL) || s.isOf(Blocks.DIRT_PATH);
     }
 
     static boolean pave(Kingdoms.K k, Civ.City c, Civ.Building b, ServerWorld w) {
@@ -294,8 +302,8 @@ final class Decor {
         Civ.City c = Civ.city(best);
         int n = 0;
         for (Civ.Building b : new ArrayList<>(c.buildings)) {
-            if (!b.done || b.kind == Civ.Kind.QUARRY || PAVED.contains(b) || !loaded(w, b)) continue;
-            PAVED.add(b);
+            if (!b.done || b.kind == Civ.Kind.QUARRY || PAVED.get(b) != null && PAVED.get(b) == c.era || !loaded(w, b)) continue;
+            PAVED.put(b, c.era);
             if (pave(best, c, b, w)) n++;
         }
         n += decorate(best, c, w, 60);
