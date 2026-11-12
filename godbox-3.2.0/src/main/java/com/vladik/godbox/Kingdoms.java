@@ -57,7 +57,8 @@ public final class Kingdoms {
         BROWN("brown", "Коричневое королевство", Formatting.DARK_RED, 0x835432, Blocks.BROWN_WOOL, DyeColor.BROWN);
 
         public final String id;
-        public final String title;
+        public volatile String title;
+        public final String defaultTitle;
         public final Formatting color;
         public final int rgb;
         public final Block wool;
@@ -73,6 +74,7 @@ public final class Kingdoms {
             this.dye = dye;
             this.id = id;
             this.title = title;
+            this.defaultTitle = title;
             this.color = color;
             this.rgb = rgb;
             this.wool = wool;

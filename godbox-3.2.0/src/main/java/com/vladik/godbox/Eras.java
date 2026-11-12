@@ -46,6 +46,23 @@ public final class Eras {
 
     private Eras() {}
 
+    /** Эпоха, в стиле которой сейчас строится чертёж: обычно эпоха города, при подборе эпохи по виду — пробная. */
+    private static int forced = -1;
+
+    static int eraOf(Kingdoms.K k) { return forced >= 0 ? forced : Civ.city(k).era; }
+
+    /** Блоки, которые эпохи подменяют друг другом (ключи и все значения таблицы). */
+    private static Set<Block> known;
+
+    static boolean known(BlockState s) {
+        if (known == null) {
+            Set<Block> t = new HashSet<>(MAP.keySet());
+            for (Block[] a : MAP.values()) for (Block b : a) if (b != null) t.add(b);
+            known = t;
+        }
+        return known.contains(s.getBlock());
+    }
+
     private static Block[] of(Block... b) { return b; }
 
     private static void row(Block[] from, Block... to) { for (Block f : from) MAP.put(f, to); }
@@ -113,13 +130,13 @@ public final class Eras {
     }
 
     static void apply(Kingdoms.K k, Civ.Kind kind, List<BlockState> ss) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         for (int i = 0; i < ss.size(); i++) ss.set(i, Races.style(k, style(e, kind, ss.get(i))));
     }
 
     /** Украшения, которые появляются только в поздних эпохах. */
     static void decor(Kingdoms.K k, Civ.Building b, Civ.Project p) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         int y0 = b.y0;
         if (b.kind == Civ.Kind.HOUSE) {
             int top = y0 + 3 + Arch.gableHeight(b.x0, b.z0, b.x1, b.z1);
@@ -190,6 +207,9 @@ public final class Eras {
     private static int gen(Kingdoms.K k) { return GEN.getOrDefault(k, 0); }
     private static int timer;
     private static final int RADIUS = 11;
+    /** Эпоха здания из старого сохранения неизвестна: её надо определить по виду здания (guess). */
+    private static final int GUESS = -3;
+    private static final int SAMPLES = 48;
 
     private record Ch(BlockPos pos, BlockState st) {}
 
@@ -204,6 +224,8 @@ public final class Eras {
     }
 
     static void clear() {
+        Props.clear();
+        TownBuilder.clearBuilds();
         RUNNING.clear();
         BUSY.clear();
         TOWN_RETRY.clear();
@@ -226,7 +248,7 @@ public final class Eras {
             b.era = r[0];
             b.rev = r[1];
         } else {
-            b.era = -1;
+            b.era = GUESS;
         }
     }
 
@@ -236,6 +258,9 @@ public final class Eras {
         resolve(b);
         return b.era != c.era;
     }
+
+    /** Эпоха у здания ещё не определена (старое сохранение): сначала guess, перекрашивать вслепую нельзя. */
+    private static boolean unknown(Civ.Building b) { return b.era == GUESS; }
 
     private static List<String> saveBuildings() {
         List<String> out = new ArrayList<>();
@@ -287,10 +312,17 @@ public final class Eras {
         boolean any = false;
         for (Civ.Building b : c.buildings) {
             if (!b.done || b.kind == Civ.Kind.QUARRY || b.kind == Civ.Kind.FARM) continue;
+            resolve(b);
+            if (b.era == GUESS) {
+                b.retryAt = 0;
+                any = true;
+                continue;
+            }
             b.era = -1;
             b.retryAt = 0;
             any = true;
         }
+        Props.markStale(k);
         List<BlockPos> ts = Conquest.TOWNS.get(k);
         if (ts != null) for (BlockPos t : ts) {
             TownBuilder.TOWN_ERA.put(t.asLong(), -1);
