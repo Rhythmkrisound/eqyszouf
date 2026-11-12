@@ -19,6 +19,9 @@ python -m venv .venv
 
 Open http://localhost:3000.
 
+On Windows, double-click `run.bat` instead: it sets everything up on first run, starts the server and
+opens the browser. Python and `ffmpeg` still need to be installed first; the script tells you if either is missing.
+
 ## How it fits together
 
 | File | Role |
