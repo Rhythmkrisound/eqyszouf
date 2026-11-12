@@ -95,8 +95,11 @@ public final class Civ {
 
     static final class Building {
         final Kind kind;
-        final int x0, z0, x1, z1, y0;
+        final int x0, z0, y0;
+        int x1, z1;
         boolean done;
+        /** Размер участка сверен с рисунком из TownBuilder (дома города крупнее Kind.w × Kind.d). */
+        boolean fitted;
         /** Эпоха, в которой здание реально построено: -2 = ещё не прочитано из сохранения, -1 = неизвестна. */
         int era = -2;
         /** Версия чертежа: 1 = постройки до 3.2 (геометрию не менять!), REV = текущая. */
@@ -114,6 +117,13 @@ public final class Civ {
             this.x1 = x0 + kind.w - 1;
             this.z1 = z0 + kind.d - 1;
             this.y0 = y0;
+        }
+
+        Building(Kind kind, int x0, int z0, int y0, int w, int d) {
+            this(kind, x0, z0, y0);
+            this.x1 = x0 + w - 1;
+            this.z1 = z0 + d - 1;
+            this.fitted = true;
         }
 
         int cx() { return (x0 + x1) / 2; }
@@ -960,6 +970,7 @@ public final class Civ {
             boolean bad = false;
             for (City oc : CITIES.values()) {
                 for (Building o : oc.buildings) {
+                    TownBuilder.fit(o);
                     if (x1 >= o.x0 - 2 && x0 <= o.x1 + 2 && z1 >= o.z0 - 2 && z0 <= o.z1 + 2) {
                         bad = true;
                         break;
@@ -991,7 +1002,7 @@ public final class Civ {
     // ---------------- чертежи ----------------
     static Project blueprint(Kingdoms.K k, Building b, ServerWorld w) {
         Project p = new Project(b);
-        p.era = city(k).era;
+        p.era = Eras.eraOf(k);
         int H = switch (b.kind) {
             case HOUSE -> 9;
             case FARM -> 3;
@@ -1033,7 +1044,7 @@ public final class Civ {
                 BlockState plank = sty[1];
                 BlockState base = Blocks.COBBLESTONE.getDefaultState();
                 BlockState glass = Blocks.GLASS.getDefaultState();
-                int era = city(k).era;
+                int era = p.era;
                 BlockState roof = Eras.style(era, Kind.HOUSE, sty[2]);
                 int cx = b.cx(), cz = b.cz();
                 // стены: каменный цоколь, фахверк, окна по центру
