@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.BooleanSupplier;
@@ -45,6 +46,23 @@ public final class Eras {
     private static final Map<Block, Block[]> MAP = new HashMap<>();
 
     private Eras() {}
+
+    /** Эпоха, в стиле которой сейчас строится чертёж: обычно эпоха города, при подборе эпохи по виду — пробная. */
+    private static int forced = -1;
+
+    static int eraOf(Kingdoms.K k) { return forced >= 0 ? forced : Civ.city(k).era; }
+
+    /** Блоки, которые эпохи подменяют друг другом (ключи и все значения таблицы). */
+    private static Set<Block> known;
+
+    static boolean known(BlockState s) {
+        if (known == null) {
+            Set<Block> t = new HashSet<>(MAP.keySet());
+            for (Block[] a : MAP.values()) for (Block b : a) if (b != null) t.add(b);
+            known = t;
+        }
+        return known.contains(s.getBlock());
+    }
 
     private static Block[] of(Block... b) { return b; }
 
@@ -113,13 +131,13 @@ public final class Eras {
     }
 
     static void apply(Kingdoms.K k, Civ.Kind kind, List<BlockState> ss) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         for (int i = 0; i < ss.size(); i++) ss.set(i, Races.style(k, style(e, kind, ss.get(i))));
     }
 
     /** Украшения, которые появляются только в поздних эпохах. */
     static void decor(Kingdoms.K k, Civ.Building b, Civ.Project p) {
-        int e = Civ.city(k).era;
+        int e = eraOf(k);
         int y0 = b.y0;
         if (b.kind == Civ.Kind.HOUSE) {
             int top = y0 + 3 + Arch.gableHeight(b.x0, b.z0, b.x1, b.z1);
@@ -190,6 +208,9 @@ public final class Eras {
     private static int gen(Kingdoms.K k) { return GEN.getOrDefault(k, 0); }
     private static int timer;
     private static final int RADIUS = 11;
+    /** Эпоха здания из старого сохранения неизвестна: её надо определить по виду здания (guess). */
+    private static final int GUESS = -3;
+    private static final int SAMPLES = 48;
 
     private record Ch(BlockPos pos, BlockState st) {}
 
@@ -199,11 +220,14 @@ public final class Eras {
     }
 
     static void init() {
+        Props.init();
         SaveExt.register("bera", Eras::saveBuildings, Eras::loadBuilding, Eras::reset);
         SaveExt.register("tera", Eras::saveTowns, Eras::loadTown, () -> {});
     }
 
     static void clear() {
+        Props.clear();
+        TownBuilder.clearBuilds();
         RUNNING.clear();
         BUSY.clear();
         TOWN_RETRY.clear();
@@ -226,7 +250,7 @@ public final class Eras {
             b.era = r[0];
             b.rev = r[1];
         } else {
-            b.era = -1;
+            b.era = GUESS;
         }
     }
 
@@ -236,6 +260,9 @@ public final class Eras {
         resolve(b);
         return b.era != c.era;
     }
+
+    /** Эпоха у здания ещё не определена (старое сохранение): сначала guess, перекрашивать вслепую нельзя. */
+    private static boolean unknown(Civ.Building b) { return b.era == GUESS; }
 
     private static List<String> saveBuildings() {
         List<String> out = new ArrayList<>();
@@ -287,10 +314,17 @@ public final class Eras {
         boolean any = false;
         for (Civ.Building b : c.buildings) {
             if (!b.done || b.kind == Civ.Kind.QUARRY || b.kind == Civ.Kind.FARM) continue;
+            resolve(b);
+            if (b.era == GUESS) {
+                b.retryAt = 0;
+                any = true;
+                continue;
+            }
             b.era = -1;
             b.retryAt = 0;
             any = true;
         }
+        Props.markStale(k);
         List<BlockPos> ts = Conquest.TOWNS.get(k);
         if (ts != null) for (BlockPos t : ts) {
             TownBuilder.TOWN_ERA.put(t.asLong(), -1);
@@ -303,31 +337,53 @@ public final class Eras {
     /** Раз в полсекунды: каждому королевству — не более одной перекраски за раз. */
     static void tick(MinecraftServer s) {
         if (++timer % 10 != 0) return;
+        boolean adopt = timer % 200 == 0;
         for (Kingdoms.K k : Kingdoms.K.values()) {
-            if (!k.alive || k.world == null || k.capital == null || BUSY.contains(k)) continue;
+            if (!k.alive || k.world == null || k.capital == null) continue;
             ServerWorld w = k.world;
+            if (adopt) Props.adopt(w);
+            if (BUSY.contains(k)) continue;
             Civ.City c = Civ.city(k);
             boolean started = false;
             for (Civ.Building b : new ArrayList<>(c.buildings)) {
-                if (!b.done || b.busy || b.kind == Civ.Kind.QUARRY || b.kind == Civ.Kind.FARM) continue;
+                if (!b.done) continue;
+                TownBuilder.fit(b);
+                if (b.busy || b.kind == Civ.Kind.QUARRY || b.kind == Civ.Kind.FARM) continue;
                 if (!stale(b, c) || RUNNING.contains(b) || b.retryAt > w.getTime()) continue;
                 if (!loadedAround(w, b.cx(), b.cz(), RADIUS)) continue;
-                restyle(k, c, w, b);
+                if (unknown(b)) {
+                    try {
+                        b.era = guess(k, c, w, b);
+                    } catch (Exception e) {
+                        GodBox.LOG.error("GodBox: не удалось определить эпоху здания", e);
+                        b.era = c.era;
+                    }
+                } else {
+                    restyle(k, c, w, b);
+                }
                 started = true;
                 break;
             }
             if (started) continue;
             List<BlockPos> ts = Conquest.TOWNS.get(k);
-            if (ts == null) continue;
-            for (BlockPos t : new ArrayList<>(ts)) {
+            if (ts != null) for (BlockPos t : new ArrayList<>(ts)) {
                 long tk = t.asLong();
                 if (townEra(tk) == c.era || TOWN_RETRY.getOrDefault(tk, 0L) > w.getTime()) continue;
                 if (!loadedAround(w, t.getX(), t.getZ(), 22)) continue;
-                restyleTown(k, c, w, t);
-                break;
+                if (restyleTown(k, c, w, t)) {
+                    started = true;
+                    break;
+                }
+            }
+            if (started) continue;
+            for (Props.Prop p : Props.of(k)) {
+                if (p.busy || p.era == c.era || p.retryAt > w.getTime()) continue;
+                if (!loadedAround(w, p.x, p.z, 12)) continue;
+                if (restyleProp(k, c, w, p)) break;
             }
         }
     }
+
 
     private static boolean loadedAround(ServerWorld w, int x, int z, int r) {
         return w.isChunkLoaded((x - r) >> 4, (z - r) >> 4) && w.isChunkLoaded((x + r) >> 4, (z - r) >> 4)
@@ -384,28 +440,86 @@ public final class Eras {
         return true;
     }
 
+    /** Чертёж здания в эпохе era: тот же, что и при постройке (для перекраски и для подбора эпохи по виду). */
+    private static Map<BlockPos, BlockState> blueprintMap(Kingdoms.K k, ServerWorld w, Civ.Building b, int era) {
+        int prev = forced;
+        forced = era;
+        try {
+            List<BlockPos> bp;
+            List<BlockState> bs;
+            if (b.kind == Civ.Kind.CASTLE) {
+                bp = new ArrayList<>();
+                bs = new ArrayList<>();
+                Ages.plan(k, b, w, bp, bs);
+                apply(k, b.kind, bs);
+            } else {
+                TownBuilder.Job tj = TownBuilder.houseBlueprint(k, b, w, era);
+                if (tj != null) {
+                    bp = tj.ps;
+                    bs = tj.ss;
+                } else {
+                    Civ.Project p = Civ.blueprint(k, b, w);
+                    bp = p.pos;
+                    bs = p.st;
+                }
+            }
+            Map<BlockPos, BlockState> want = new LinkedHashMap<>();
+            for (int i = 0; i < bp.size(); i++) want.put(bp.get(i), bs.get(i));
+            return want;
+        } finally {
+            forced = prev;
+        }
+    }
+
+    private static Block blockAt(Map<BlockPos, BlockState> m, BlockPos p) {
+        BlockState s = m.get(p);
+        return s == null ? Blocks.AIR : s.getBlock();
+    }
+
+    /**
+     * Старое сохранение не знает эпоху здания. Сравнивает несколько «опознавательных» блоков (там, где палитры
+     * эпох различаются) с чертежами всех эпох и берёт лучшее совпадение; при сомнении считает, что здание уже
+     * в эпохе города — тогда оно не перекрашивается и правки игрока остаются.
+     */
+    private static int guess(Kingdoms.K k, Civ.City c, ServerWorld w, Civ.Building b) {
+        int cur = c.era;
+        int n = NAMES.length;
+        List<Map<BlockPos, BlockState>> maps = new ArrayList<>();
+        for (int e = 0; e < n; e++) maps.add(blueprintMap(k, w, b, e));
+        Set<BlockPos> all = new LinkedHashSet<>(maps.get(Math.min(cur, n - 1)).keySet());
+        for (Map<BlockPos, BlockState> m : maps) all.addAll(m.keySet());
+        List<BlockPos> sig = new ArrayList<>();
+        for (BlockPos p : all) {
+            if (!w.isChunkLoaded(p.getX() >> 4, p.getZ() >> 4)) continue;
+            Block first = blockAt(maps.get(0), p);
+            boolean differs = false;
+            for (int e = 1; e < n && !differs; e++) differs = blockAt(maps.get(e), p) != first;
+            if (differs) sig.add(p);
+        }
+        int step = Math.max(1, sig.size() / SAMPLES);
+        int[] score = new int[n];
+        int total = 0;
+        for (int i = 0; i < sig.size(); i += step) {
+            BlockPos p = sig.get(i);
+            Block have = w.getBlockState(p).getBlock();
+            total++;
+            for (int e = 0; e < n; e++) if (blockAt(maps.get(e), p) == have) score[e]++;
+        }
+        if (total < 4) return cur;
+        int best = 0;
+        for (int e = 0; e < n; e++) best = Math.max(best, score[e]);
+        if (score[Math.min(cur, n - 1)] == best || best * 2 < total) return cur;
+        int pick = -1;
+        for (int e = 0; e < n; e++) {
+            if (score[e] != best) continue;
+            if (pick < 0 || Math.abs(e - cur) < Math.abs(pick - cur)) pick = e;
+        }
+        return pick;
+    }
+
     private static void restyle(Kingdoms.K k, Civ.City c, ServerWorld w, Civ.Building b) {
         int era = c.era;
-        List<BlockPos> bp;
-        List<BlockState> bs;
-        if (b.kind == Civ.Kind.CASTLE) {
-            bp = new ArrayList<>();
-            bs = new ArrayList<>();
-            Ages.plan(k, b, w, bp, bs);
-            apply(k, b.kind, bs);
-        } else {
-            TownBuilder.Job tj = TownBuilder.houseBlueprint(k, b, w, era);
-            if (tj != null) {
-                bp = tj.ps;
-                bs = tj.ss;
-            } else {
-                Civ.Project p = Civ.blueprint(k, b, w);
-                bp = p.pos;
-                bs = p.st;
-            }
-        }
-        Map<BlockPos, BlockState> want = new LinkedHashMap<>();
-        for (int i = 0; i < bp.size(); i++) want.put(bp.get(i), bs.get(i));
+        Map<BlockPos, BlockState> want = blueprintMap(k, w, b, era);
         Plan pl = diff(w, want, b.cx(), b.cz(), RADIUS, cur -> true);
         if (!coversLoaded(w, want.keySet())) {
             b.retryAt = w.getTime() + 200;
@@ -426,13 +540,39 @@ public final class Eras {
         });
     }
 
-    private static void restyleTown(Kingdoms.K k, Civ.City c, ServerWorld w, BlockPos t) {
+    /** Колодцы, прилавки, фонари и причалы: только то, что эпохи подменяют друг другом, плюс факел→фонарь и забор→стена. */
+    private static boolean propMay(BlockState s) {
+        return known(s) || s.isOf(Blocks.TORCH) || s.isOf(Blocks.LANTERN) || s.getBlock() instanceof FenceBlock;
+    }
+
+    private static boolean restyleProp(Kingdoms.K k, Civ.City c, ServerWorld w, Props.Prop p) {
+        int era = c.era;
+        TownBuilder.Job tj = Props.blueprint(w, p, era);
+        Map<BlockPos, BlockState> want = new LinkedHashMap<>();
+        for (int i = 0; i < tj.ps.size(); i++) want.put(tj.ps.get(i), tj.ss.get(i));
+        if (!coversLoaded(w, want.keySet())) {
+            p.retryAt = w.getTime() + 200;
+            return false;
+        }
+        Plan pl = diff(w, want, p.x, p.z, 12, Eras::propMay);
+        BUSY.add(k);
+        int g = gen(k);
+        schedule(w, pl, () -> Props.has(p), ok -> {
+            BUSY.remove(k);
+            if (ok) p.era = g == gen(k) ? era : -1;
+            else p.retryAt = w.getTime() + 200;
+        });
+        return true;
+    }
+
+    private static boolean restyleTown(Kingdoms.K k, Civ.City c, ServerWorld w, BlockPos t) {
         long tk = t.asLong();
+        if (TownBuilder.underBuild(tk)) return false;
         int era = c.era;
         TownBuilder.Job tj = TownBuilder.townBlueprint(k, w, t, era);
         if (tj == null) {
             TownBuilder.TOWN_ERA.put(tk, era);
-            return;
+            return false;
         }
         Map<BlockPos, BlockState> want = new LinkedHashMap<>();
         for (int i = 0; i < tj.ps.size(); i++) want.put(tj.ps.get(i), tj.ss.get(i));
@@ -445,6 +585,7 @@ public final class Eras {
             if (ok) TownBuilder.TOWN_ERA.put(tk, g == gen(k) ? era : -1);
             else TOWN_RETRY.put(tk, w.getTime() + 200);
         });
+        return true;
     }
 
     /** Выкладывает изменения порциями по 60 блоков за тик; done получает false, если что-то не удалось (чанк выгрузили). */
