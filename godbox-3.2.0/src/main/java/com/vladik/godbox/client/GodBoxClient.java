@@ -20,6 +20,7 @@ public class GodBoxClient implements ClientModInitializer {
                 "key.godbox.toggle", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.godbox"));
         GodKeys.init();
         Favorites.load();
+        GodParticlesClient.init();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (TOGGLE.wasPressed()) {
@@ -52,6 +53,7 @@ public class GodBoxClient implements ClientModInitializer {
                 WorldMap.history(payload.index(), payload.total(), payload.data())));
         ClientPlayNetworking.registerGlobalReceiver(com.vladik.godbox.net.HistoryPayloads.HistoryOpen.ID, (payload, ctx) -> ctx.client().execute(WorldMap::openReplay));
         InspectScreen.register();
+        ChronicleScreen.register();
         ClientPlayNetworking.registerGlobalReceiver(com.vladik.godbox.net.MortalPayloads.MortalHud.ID, (payload, ctx) -> ctx.client().execute(() -> MortalClient.set(payload)));
     }
 }
